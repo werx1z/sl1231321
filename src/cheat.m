@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// С ЗАДЕРЖКОЙ 3 МИНУТЫ И ПОИСКОМ ПО ВСЕМ ОФФСЕТАМ!
+// С ХУКАМИ (SUBSTRATE) — БЕЗ ЗАДЕРЖЕК!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -8,6 +8,7 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
+#import <substrate.h>  // ← Подключаем Substrate!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -26,27 +27,19 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ВСЕ ОФФСЕТЫ (БУДУТ ПРОВЕРЯТЬСЯ ВСЕ!)
+// 2. ВСЕ ОФФСЕТЫ (ТОЧНЫЕ!)
 // =================================================================
 
 uintptr_t baseAddress = 0;
 uintptr_t gameController = 0;
+BOOL cheatInitialized = NO;
 
-// ====== ВОЗМОЖНЫЕ ОФФСЕТЫ GAMECONTROLLER ======
-#define OFFSET_GAMECONTROLLER_INSTANCE_1      0x08
-#define OFFSET_GAMECONTROLLER_INSTANCE_2      0x10
-#define OFFSET_GAMECONTROLLER_INSTANCE_3      0x18
-#define OFFSET_GAMECONTROLLER_INSTANCE_4      0x20
-#define OFFSET_GAMECONTROLLER_INSTANCE_5      0x28
-#define OFFSET_GAMECONTROLLER_INSTANCE_6      0x30
-#define OFFSET_GAMECONTROLLER_INSTANCE_7      0x38
-#define OFFSET_GAMECONTROLLER_INSTANCE_8      0x40
-#define OFFSET_GAMECONTROLLER_INSTANCE_9      0x48
-#define OFFSET_GAMECONTROLLER_INSTANCE_10     0x50
-
-// ====== ОСТАЛЬНЫЕ ОФФСЕТЫ (ПРОВЕРЕННЫЕ) ======
+// ====== GAME CONTROLLER ======
+#define OFFSET_GAMECONTROLLER_INSTANCE         0x18
 #define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
 #define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280
+
+// ====== SPECTATOR CONTROLLER ======
 #define OFFSET_SPECTATOR_PLAYERS               0x58
 
 // ====== PLAYER CONTROLLER ======
@@ -82,7 +75,7 @@ uintptr_t gameController = 0;
 // ====== TRANSFORM ======
 #define OFFSET_TRANSFORM_POSITION              0x10
 
-// ====== CAMERA (НОВЫЕ ОФФСЕТЫ!) ======
+// ====== CAMERA ======
 #define OFFSET_CAMERA_WORLDTOCAMERA            0xE0
 #define OFFSET_CAMERA_PROJECTION               0x120
 
@@ -156,80 +149,7 @@ void WriteUInt32(uintptr_t address, uint32_t value) {
 }
 
 // =================================================================
-// 5. ПОИСК GAMECONTROLLER ПО ВСЕМ ОФФСЕТАМ
-// =================================================================
-
-uintptr_t FindGameControllerAllOffsets() {
-    WriteLog(@"🔍 Searching GameController by all possible offsets...");
-    
-    // Все возможные оффсеты
-    uintptr_t offsets[] = {
-        0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50,
-        0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0,
-        0xA8, 0xB0, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0,
-        0xF8, 0x100, 0x108, 0x110, 0x118, 0x120, 0x128, 0x130, 0x138, 0x140
-    };
-    
-    int offsetsCount = sizeof(offsets) / sizeof(uintptr_t);
-    
-    for (int i = 0; i < offsetsCount; i++) {
-        uintptr_t offset = offsets[i];
-        uintptr_t gc = ReadPtr(baseAddress + offset);
-        
-        if (gc && gc > 0x100000000) {
-            // Проверяем, есть ли камера
-            uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
-            if (camera && camera > 0x100000000) {
-                // Проверяем, есть ли локальный игрок
-                uintptr_t player = ReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
-                if (player && player > 0x100000000) {
-                    WriteLog([NSString stringWithFormat:@"✅ FOUND GameController at offset 0x%lx!", offset]);
-                    WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
-                    WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
-                    WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
-                    return gc;
-                }
-            }
-        }
-    }
-    
-    WriteLog(@"❌ GameController NOT found in any offset!");
-    return 0;
-}
-
-// =================================================================
-// 6. ОЖИДАНИЕ GAMECONTROLLER С ЗАДЕРЖКОЙ 3 МИНУТЫ!
-// =================================================================
-
-uintptr_t WaitForGameController() {
-    WriteLog(@"⏳ Waiting for GameController (3 minutes timeout)...");
-    WriteLog(@"⏳ Enter the match and wait...");
-    
-    int maxAttempts = 3600; // 3 минуты * 20 раз в секунду
-    int attempt = 0;
-    
-    while (attempt < maxAttempts) {
-        uintptr_t gc = FindGameControllerAllOffsets();
-        if (gc) {
-            WriteLog([NSString stringWithFormat:@"✅ GameController found after %.1f seconds!", (float)attempt / 20.0f]);
-            return gc;
-        }
-        
-        attempt++;
-        usleep(50000); // ждём 50 мс (20 раз в секунду)
-        
-        // Каждые 10 секунд пишем в лог, что ждём
-        if (attempt % 200 == 0) {
-            WriteLog([NSString stringWithFormat:@"⏳ Still waiting... (%d seconds)", attempt / 20]);
-        }
-    }
-    
-    WriteLog(@"❌ GameController NOT found after 3 minutes!");
-    return 0;
-}
-
-// =================================================================
-// 7. РАБОТА С UNITY TRANSFORM
+// 5. РАБОТА С UNITY TRANSFORM
 // =================================================================
 
 Vector3 GetGlobalPosition(uintptr_t transformPtr) {
@@ -250,7 +170,7 @@ Vector3 GetGlobalPosition(uintptr_t transformPtr) {
 }
 
 // =================================================================
-// 8. ПОЛУЧЕНИЕ КАМЕРЫ И МАТРИЦ
+// 6. ПОЛУЧЕНИЕ КАМЕРЫ И МАТРИЦ
 // =================================================================
 
 float* viewMatrix = NULL;
@@ -270,7 +190,7 @@ void UpdateMatrices() {
 }
 
 // =================================================================
-// 9. МИР -> ЭКРАН
+// 7. МИР -> ЭКРАН
 // =================================================================
 
 bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
@@ -305,7 +225,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 }
 
 // =================================================================
-// 10. ПОЛУЧЕНИЕ ИГРОКОВ
+// 8. ПОЛУЧЕНИЕ ИГРОКОВ
 // =================================================================
 
 uintptr_t GetLocalPlayer() {
@@ -331,7 +251,7 @@ int GetPlayerCount() {
 }
 
 // =================================================================
-// 11. ПОЛУЧЕНИЕ PLAYERCONTROLLER ИЗ PHOTONPLAYER
+// 9. ПОЛУЧЕНИЕ PLAYERCONTROLLER ИЗ PHOTONPLAYER
 // =================================================================
 
 uintptr_t GetControllerFromPhotonPlayer(uintptr_t photonPlayer) {
@@ -352,7 +272,7 @@ uintptr_t GetControllerFromPhotonPlayer(uintptr_t photonPlayer) {
 }
 
 // =================================================================
-// 12. ПОЛУЧЕНИЕ СКЕЛЕТА
+// 10. ПОЛУЧЕНИЕ СКЕЛЕТА
 // =================================================================
 
 typedef struct {
@@ -443,7 +363,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 }
 
 // =================================================================
-// 13. ESP ОВЕРЛЕЙ
+// 11. ESP ОВЕРЛЕЙ
 // =================================================================
 
 @interface ESPOverlayView : UIView
@@ -559,149 +479,203 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 14. ТОЧКА ВХОДА (С ЗАДЕРЖКОЙ 3 МИНУТЫ!)
+// 12. ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ ЧИТА
 // =================================================================
 
 ESPOverlayView *espView = nil;
 
-__attribute__((constructor)) static void init() {
-    @autoreleasepool {
-        WriteLog(@"=== CHEAT INIT STARTED ===");
+void InitializeCheat() {
+    if (cheatInitialized) return;
+    cheatInitialized = YES;
+    
+    WriteLog(@"=== CHEAT INITIALIZATION STARTED ===");
+    
+    baseAddress = GetBaseAddress();
+    WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
+    
+    // Получаем GameController
+    gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+    if (!gameController) {
+        WriteLog(@"❌ GameController is NULL!");
+        return;
+    }
+    WriteLog([NSString stringWithFormat:@"✅ GameController: 0x%lx", gameController]);
+    
+    // Обновляем матрицы
+    UpdateMatrices();
+    
+    // Проверяем камеру
+    uintptr_t camera = GetMainCamera();
+    if (!camera) {
+        WriteLog(@"❌ ERROR: Camera is NULL!");
+        return;
+    }
+    WriteLog([NSString stringWithFormat:@"Camera: 0x%lx", camera]);
+    
+    // Проверяем локального игрока
+    uintptr_t localPlayer = GetLocalPlayer();
+    if (!localPlayer) {
+        WriteLog(@"❌ ERROR: LocalPlayer is NULL!");
+        return;
+    }
+    WriteLog([NSString stringWithFormat:@"LocalPlayer: 0x%lx", localPlayer]);
+    
+    // Проверяем матрицы
+    if (!viewMatrix || !projectionMatrix) {
+        WriteLog(@"❌ ERROR: Matrices are NULL!");
+        return;
+    }
+    WriteLog(@"✅ Matrices found!");
+    
+    // Создаём ESP
+    dispatch_async(dispatch_get_main_queue(), ^{
+        WriteLog(@"Creating ESP overlay...");
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        if (!window) {
+            window = [[UIApplication sharedApplication].windows firstObject];
+        }
         
-        baseAddress = GetBaseAddress();
-        WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
-        
-        // ⏳ ЖДЁМ 3 МИНУТЫ ДЛЯ ВХОДА В МАТЧ!
-        gameController = WaitForGameController();
-        
-        if (!gameController) {
-            WriteLog(@"❌ CRITICAL: GameController not found after 3 minutes! Cheat will not work.");
+        if (!window) {
+            WriteLog(@"❌ ERROR: No window found!");
             return;
         }
         
-        WriteLog([NSString stringWithFormat:@"✅ FINAL GameController: 0x%lx", gameController]);
+        int localTeam = (int)ReadUInt8(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
+        WriteLog([NSString stringWithFormat:@"Local Team: %d", localTeam]);
         
-        // Обновляем матрицы
-        UpdateMatrices();
+        espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
+        espView.backgroundColor = [UIColor clearColor];
+        espView.userInteractionEnabled = NO;
+        espView.opaque = NO;
+        espView.localTeam = localTeam;
+        [window addSubview:espView];
+        [window bringSubviewToFront:espView];
+        WriteLog(@"✅ ESP Overlay created!");
         
-        // Проверяем камеру
-        uintptr_t camera = GetMainCamera();
-        if (!camera) {
-            WriteLog(@"❌ ERROR: Camera is NULL!");
-            return;
-        }
-        WriteLog([NSString stringWithFormat:@"Camera: 0x%lx", camera]);
-        
-        // Проверяем локального игрока
-        uintptr_t localPlayer = GetLocalPlayer();
-        if (!localPlayer) {
-            WriteLog(@"❌ ERROR: LocalPlayer is NULL!");
-            return;
-        }
-        WriteLog([NSString stringWithFormat:@"LocalPlayer: 0x%lx", localPlayer]);
-        
-        // Проверяем матрицы
-        if (!viewMatrix || !projectionMatrix) {
-            WriteLog(@"❌ ERROR: Matrices are NULL!");
-            return;
-        }
-        WriteLog(@"✅ Matrices found!");
-        
-        // Проверяем список игроков
-        uintptr_t spectator = GetSpectatorController();
-        if (spectator) {
-            WriteLog([NSString stringWithFormat:@"SpectatorController: 0x%lx", spectator]);
-            uintptr_t playerList = GetPlayerList();
-            if (playerList) {
-                int count = GetPlayerCount();
-                WriteLog([NSString stringWithFormat:@"✅ Player count: %d", count]);
-            } else {
-                WriteLog(@"⚠️ PlayerList is NULL (might be in menu)");
-            }
-        } else {
-            WriteLog(@"⚠️ SpectatorController is NULL (might be in menu)");
-        }
-        
-        // Создаём ESP
-        dispatch_async(dispatch_get_main_queue(), ^{
-            WriteLog(@"Creating ESP overlay...");
-            UIWindow *window = [UIApplication sharedApplication].keyWindow;
-            if (!window) {
-                window = [[UIApplication sharedApplication].windows firstObject];
-            }
-            
-            if (!window) {
-                WriteLog(@"❌ ERROR: No window found!");
-                return;
-            }
-            
-            int localTeam = (int)ReadUInt8(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
-            WriteLog([NSString stringWithFormat:@"Local Team: %d", localTeam]);
-            
-            espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
-            espView.backgroundColor = [UIColor clearColor];
-            espView.userInteractionEnabled = NO;
-            espView.opaque = NO;
-            espView.localTeam = localTeam;
-            [window addSubview:espView];
-            [window bringSubviewToFront:espView];
-            WriteLog(@"✅ ESP Overlay created!");
-            
-            // Таймер для обновления
-            [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) {
-                @autoreleasepool {
-                    UpdateMatrices();
-                    uintptr_t local = GetLocalPlayer();
-                    if (!local) {
-                        espView.players = @[];
-                        [espView setNeedsDisplay];
-                        return;
-                    }
-                    
-                    uintptr_t localTransform = ReadPtr(local + OFFSET_PLAYERCONTROLLER_TRANSFORM);
-                    espView.localPos = GetGlobalPosition(localTransform);
-                    espView.localTeam = (int)ReadUInt8(local + OFFSET_PLAYERCONTROLLER_TEAM);
-                    
-                    NSMutableArray *playersArray = [NSMutableArray array];
-                    uintptr_t playerList = GetPlayerList();
-                    
-                    if (playerList) {
-                        int playerCount = GetPlayerCount();
-                        for (int i = 0; i < playerCount; i++) {
-                            uintptr_t photonPlayer = ReadPtr(playerList + i * sizeof(uintptr_t));
-                            if (!photonPlayer) continue;
-                            if (ReadUInt8(photonPlayer + OFFSET_PHOTONPLAYER_ISLOCAL)) continue;
+        // Таймер для обновления
+        [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) {
+            @autoreleasepool {
+                UpdateMatrices();
+                uintptr_t local = GetLocalPlayer();
+                if (!local) {
+                    espView.players = @[];
+                    [espView setNeedsDisplay];
+                    return;
+                }
+                
+                uintptr_t localTransform = ReadPtr(local + OFFSET_PLAYERCONTROLLER_TRANSFORM);
+                espView.localPos = GetGlobalPosition(localTransform);
+                espView.localTeam = (int)ReadUInt8(local + OFFSET_PLAYERCONTROLLER_TEAM);
+                
+                NSMutableArray *playersArray = [NSMutableArray array];
+                uintptr_t playerList = GetPlayerList();
+                
+                if (playerList) {
+                    int playerCount = GetPlayerCount();
+                    for (int i = 0; i < playerCount; i++) {
+                        uintptr_t photonPlayer = ReadPtr(playerList + i * sizeof(uintptr_t));
+                        if (!photonPlayer) continue;
+                        if (ReadUInt8(photonPlayer + OFFSET_PHOTONPLAYER_ISLOCAL)) continue;
+                        
+                        int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
+                        if (actorId == 0) continue;
+                        
+                        uintptr_t controller = GetControllerFromPhotonPlayer(photonPlayer);
+                        if (controller && controller != local) {
+                            SkeletonBones bones = GetPlayerBones(controller);
+                            int team = (int)ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_TEAM);
+                            int playerId = (int)ReadUInt32(controller + OFFSET_PLAYERCONTROLLER_PLAYERID);
+                            uint8_t isAlive = ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED);
                             
-                            int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
-                            if (actorId == 0) continue;
+                            if (!isAlive) continue;
+                            if (team == localTeam) continue;
                             
-                            uintptr_t controller = GetControllerFromPhotonPlayer(photonPlayer);
-                            if (controller && controller != local) {
-                                SkeletonBones bones = GetPlayerBones(controller);
-                                int team = (int)ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_TEAM);
-                                int playerId = (int)ReadUInt32(controller + OFFSET_PLAYERCONTROLLER_PLAYERID);
-                                uint8_t isAlive = ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED);
-                                
-                                if (!isAlive) continue;
-                                if (team == localTeam) continue;
-                                
-                                NSMutableDictionary *playerData = [NSMutableDictionary dictionary];
-                                [playerData setObject:[NSData dataWithBytes:&bones length:sizeof(SkeletonBones)] forKey:@"bones"];
-                                [playerData setObject:[NSNumber numberWithInt:team] forKey:@"team"];
-                                [playerData setObject:[NSNumber numberWithBool:NO] forKey:@"isMine"];
-                                [playerData setObject:[NSNumber numberWithBool:isAlive] forKey:@"isAlive"];
-                                [playerData setObject:[NSNumber numberWithInt:playerId] forKey:@"playerId"];
-                                [playersArray addObject:playerData];
-                            }
+                            NSMutableDictionary *playerData = [NSMutableDictionary dictionary];
+                            [playerData setObject:[NSData dataWithBytes:&bones length:sizeof(SkeletonBones)] forKey:@"bones"];
+                            [playerData setObject:[NSNumber numberWithInt:team] forKey:@"team"];
+                            [playerData setObject:[NSNumber numberWithBool:NO] forKey:@"isMine"];
+                            [playerData setObject:[NSNumber numberWithBool:isAlive] forKey:@"isAlive"];
+                            [playerData setObject:[NSNumber numberWithInt:playerId] forKey:@"playerId"];
+                            [playersArray addObject:playerData];
                         }
                     }
-                    
-                    espView.players = playersArray;
-                    [espView setNeedsDisplay];
                 }
-            }];
-        });
+                
+                espView.players = playersArray;
+                [espView setNeedsDisplay];
+            }
+        }];
+    });
+    
+    WriteLog(@"=== CHEAT INITIALIZATION COMPLETED ===");
+}
+
+// =================================================================
+// 13. ТОЧКА ВХОДА — УСТАНАВЛИВАЕМ ХУК!
+// =================================================================
+
+// Оригинальная функция GameController
+static void (*original_GameController_init)(id self, SEL _cmd);
+
+// Наша подмена
+void hooked_GameController_init(id self, SEL _cmd) {
+    WriteLog(@"🔧 GameController init hooked!");
+    
+    // Вызываем оригинал
+    if (original_GameController_init) {
+        original_GameController_init(self, _cmd);
+    }
+    
+    // Инициализируем чит
+    InitializeCheat();
+}
+
+// Точка входа
+__attribute__((constructor)) static void init() {
+    @autoreleasepool {
+        WriteLog(@"=== CHEAT LOADED ===");
+        WriteLog(@"Setting up hooks...");
         
-        WriteLog(@"=== CHEAT INIT COMPLETED ===");
+        // Получаем класс GameController
+        Class gcClass = objc_getClass("GameController");
+        if (!gcClass) {
+            WriteLog(@"❌ GameController class not found!");
+            return;
+        }
+        
+        // Устанавливаем хук на метод init
+        SEL initSelector = @selector(init);
+        Method originalMethod = class_getInstanceMethod(gcClass, initSelector);
+        
+        if (originalMethod) {
+            WriteLog(@"✅ Found GameController.init, setting hook...");
+            MSHookMessageEx(
+                gcClass,
+                initSelector,
+                (IMP)&hooked_GameController_init,
+                (IMP*)&original_GameController_init
+            );
+            WriteLog(@"✅ Hook set successfully!");
+        } else {
+            WriteLog(@"⚠️ GameController.init not found, trying initWithCoder:");
+            
+            // Пробуем initWithCoder:
+            SEL coderSelector = @selector(initWithCoder:);
+            Method coderMethod = class_getInstanceMethod(gcClass, coderSelector);
+            
+            if (coderMethod) {
+                MSHookMessageEx(
+                    gcClass,
+                    coderSelector,
+                    (IMP)&hooked_GameController_init,
+                    (IMP*)&original_GameController_init
+                );
+                WriteLog(@"✅ Hook on initWithCoder: set!");
+            } else {
+                WriteLog(@"❌ No suitable init method found!");
+            }
+        }
+        
+        WriteLog(@"=== HOOK SETUP COMPLETED ===");
     }
 }
