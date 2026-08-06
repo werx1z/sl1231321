@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// БЕЗ substrate.h — используем только constructor!
+// ОБНОВЛЕНО: оффсеты из дампа памяти от 06.08.2026
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -26,26 +26,26 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ВСЕ ОФФСЕТЫ
+// 2. ВСЕ ОФФСЕТЫ (ОБНОВЛЕНЫ ИЗ ДАМПА!)
 // =================================================================
 
 uintptr_t baseAddress = 0;
 
 // ====== GAME CONTROLLER ======
-#define OFFSET_GAMECONTROLLER_INSTANCE         0x10
-#define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
-#define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x278
+#define OFFSET_GAMECONTROLLER_INSTANCE         0x10   // ✅ не изменился
+#define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0   // ✅ не изменился
+#define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280  // ❗ БЫЛО 0x278, СТАЛО 0x280
 
 // ====== SPECTATOR CONTROLLER ======
-#define OFFSET_SPECTATOR_PLAYERS               0x58
+#define OFFSET_SPECTATOR_PLAYERS               0x58   // ✅ не изменился
 
 // ====== PLAYER CONTROLLER ======
-#define OFFSET_PLAYERCONTROLLER_TEAM           0x49
-#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
-#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
-#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
-#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
-#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
+#define OFFSET_PLAYERCONTROLLER_TEAM           0x49   // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68   // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0   // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100  // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0  // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108  // ✅ не изменился
 
 // ====== BIPEDMAP ======
 #define OFFSET_BIPED_HEAD                      0x18
@@ -72,9 +72,9 @@ uintptr_t baseAddress = 0;
 // ====== TRANSFORM ======
 #define OFFSET_TRANSFORM_POSITION              0x10
 
-// ====== CAMERA ======
-#define OFFSET_CAMERA_WORLDTOCAMERA            0x100
-#define OFFSET_CAMERA_PROJECTION               0x140
+// ====== CAMERA (ОБНОВЛЕНО ИЗ ДАМПА!) ======
+#define OFFSET_CAMERA_WORLDTOCAMERA            0xE0   // ❗ БЫЛО 0x100, СТАЛО 0xE0
+#define OFFSET_CAMERA_PROJECTION               0x120  // ❗ БЫЛО 0x140, СТАЛО 0x120
 
 // ====== PHOTON PLAYER ======
 #define OFFSET_PHOTONPLAYER_ACTORID            0x10
@@ -160,8 +160,9 @@ void UpdateMatrices() {
     uintptr_t camera = GetMainCamera();
     if (!camera) return;
     
-    viewMatrix = (float*)(camera + OFFSET_CAMERA_WORLDTOCAMERA);
-    projectionMatrix = (float*)(camera + OFFSET_CAMERA_PROJECTION);
+    // Используем ОБНОВЛЕННЫЕ оффсеты из дампа!
+    viewMatrix = (float*)(camera + OFFSET_CAMERA_WORLDTOCAMERA);  // 0xE0
+    projectionMatrix = (float*)(camera + OFFSET_CAMERA_PROJECTION); // 0x120
 }
 
 // =================================================================
@@ -206,7 +207,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 uintptr_t GetLocalPlayer() {
     uintptr_t gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
     if (!gameController) return 0;
-    return ReadPtr(gameController + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
+    return ReadPtr(gameController + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER); // 0x280
 }
 
 uintptr_t GetSpectatorController() {
@@ -218,7 +219,7 @@ uintptr_t GetSpectatorController() {
 uintptr_t GetPlayerList() {
     uintptr_t spectator = GetSpectatorController();
     if (!spectator) return 0;
-    return ReadPtr(spectator + OFFSET_SPECTATOR_PLAYERS);
+    return ReadPtr(spectator + OFFSET_SPECTATOR_PLAYERS); // 0x58
 }
 
 int GetPlayerCount() {
@@ -280,7 +281,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
     
     if (!playerControllerPtr) return bones;
     
-    uintptr_t bipedMap = ReadPtr(playerControllerPtr + OFFSET_PLAYERCONTROLLER_BIPEDMAP);
+    uintptr_t bipedMap = ReadPtr(playerControllerPtr + OFFSET_PLAYERCONTROLLER_BIPEDMAP); // 0xD0
     if (!bipedMap) {
         bipedMap = ReadPtr(playerControllerPtr + 0x30);
     }
@@ -456,7 +457,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 11. ТОЧКА ВХОДА — БЕЗ SUBSTRATE.H!
+// 11. ТОЧКА ВХОДА
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -464,7 +465,7 @@ ESPOverlayView *espView = nil;
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
         NSLog(@"[CHEAT] ========================================");
-        NSLog(@"[CHEAT] Loading Standoff 2 Cheat");
+        NSLog(@"[CHEAT] Loading Standoff 2 Cheat (ОБНОВЛЕНО!)");
         NSLog(@"[CHEAT] ESP + Skeleton + Silent Aim 360");
         NSLog(@"[CHEAT] ========================================");
         
@@ -478,6 +479,17 @@ __attribute__((constructor)) static void init() {
         if (localPlayer) {
             localTeam = (int)ReadUInt8(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
             NSLog(@"[CHEAT] Local Player found, Team: %d", localTeam);
+        } else {
+            NSLog(@"[CHEAT] ERROR: Local Player NOT found!");
+            return;
+        }
+        
+        // Проверяем, что матрицы найдены
+        if (viewMatrix && projectionMatrix) {
+            NSLog(@"[CHEAT] Matrices found: view=0x%lx, proj=0x%lx", (uintptr_t)viewMatrix, (uintptr_t)projectionMatrix);
+        } else {
+            NSLog(@"[CHEAT] ERROR: Matrices NOT found!");
+            return;
         }
         
         dispatch_async(dispatch_get_main_queue(), ^{
