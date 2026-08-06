@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// ДЛЯ LIVECONTAINER — С СОХРАНЕНИЕМ ЛОГОВ В ФАЙЛ!
+// ОБНОВЛЕНО: оффсеты из дампа памяти от 06.08.2026
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -32,20 +32,20 @@ typedef struct {
 uintptr_t baseAddress = 0;
 
 // ====== GAME CONTROLLER ======
-#define OFFSET_GAMECONTROLLER_INSTANCE         0x10
-#define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
-#define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280  // НОВЫЙ ОФФСЕТ!
+#define OFFSET_GAMECONTROLLER_INSTANCE         0x18   // НОВЫЙ ОФФСЕТ! (было 0x10)
+#define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0   // ✅ не изменился
+#define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280  // ❗ БЫЛО 0x278, СТАЛО 0x280
 
 // ====== SPECTATOR CONTROLLER ======
-#define OFFSET_SPECTATOR_PLAYERS               0x58
+#define OFFSET_SPECTATOR_PLAYERS               0x58   // ✅ не изменился
 
 // ====== PLAYER CONTROLLER ======
-#define OFFSET_PLAYERCONTROLLER_TEAM           0x49
-#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
-#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
-#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
-#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
-#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
+#define OFFSET_PLAYERCONTROLLER_TEAM           0x49   // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68   // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0   // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100  // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0  // ✅ не изменился
+#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108  // ✅ не изменился
 
 // ====== BIPEDMAP ======
 #define OFFSET_BIPED_HEAD                      0x18
@@ -73,8 +73,8 @@ uintptr_t baseAddress = 0;
 #define OFFSET_TRANSFORM_POSITION              0x10
 
 // ====== CAMERA (ОБНОВЛЕНО ИЗ ДАМПА!) ======
-#define OFFSET_CAMERA_WORLDTOCAMERA            0xE0   // НОВЫЙ ОФФСЕТ!
-#define OFFSET_CAMERA_PROJECTION               0x120  // НОВЫЙ ОФФСЕТ!
+#define OFFSET_CAMERA_WORLDTOCAMERA            0xE0   // ❗ БЫЛО 0x100, СТАЛО 0xE0
+#define OFFSET_CAMERA_PROJECTION               0x120  // ❗ БЫЛО 0x140, СТАЛО 0x120
 
 // ====== PHOTON PLAYER ======
 #define OFFSET_PHOTONPLAYER_ACTORID            0x10
@@ -496,10 +496,10 @@ __attribute__((constructor)) static void init() {
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        // 1. Проверяем GameController
+        // 1. Проверяем GameController (НОВЫЙ ОФФСЕТ 0x18!)
         uintptr_t gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
         if (!gameController) {
-            WriteLog(@"ERROR: GameController is NULL!");
+            WriteLog(@"ERROR: GameController is NULL! (OFFSET 0x18)");
             return;
         }
         WriteLog([NSString stringWithFormat:@"GameController: 0x%lx", gameController]);
