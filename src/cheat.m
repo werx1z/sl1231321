@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// С ПОДДЕРЖКОЙ SUBSTRATE!
+// БЕЗ substrate.h — используем только constructor!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -8,7 +8,6 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
-#import <substrate.h>  // <--- ПОДКЛЮЧАЕМ SUBSTRATE!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -457,14 +456,15 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 11. SUBSTRATE INIT — ГЛАВНЫЙ КОНСТРУКТОР
+// 11. ТОЧКА ВХОДА — БЕЗ SUBSTRATE.H!
 // =================================================================
 
-// Функция, которая будет вызвана при загрузке через Substrate
-static void Initialize() {
+ESPOverlayView *espView = nil;
+
+__attribute__((constructor)) static void init() {
     @autoreleasepool {
         NSLog(@"[CHEAT] ========================================");
-        NSLog(@"[CHEAT] Loading Standoff 2 Cheat (Substrate)");
+        NSLog(@"[CHEAT] Loading Standoff 2 Cheat");
         NSLog(@"[CHEAT] ESP + Skeleton + Silent Aim 360");
         NSLog(@"[CHEAT] ========================================");
         
@@ -491,7 +491,7 @@ static void Initialize() {
                 return;
             }
             
-            ESPOverlayView *espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
+            espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
             espView.backgroundColor = [UIColor clearColor];
             espView.userInteractionEnabled = NO;
             espView.opaque = NO;
@@ -566,33 +566,3 @@ static void Initialize() {
         NSLog(@"[CHEAT] ========================================");
     }
 }
-
-// =================================================================
-// 12. ТОЧКА ВХОДА ДЛЯ SUBSTRATE
-// =================================================================
-
-// Substrate ищет эту функцию при загрузке
-__attribute__((constructor)) static void init() {
-    // Просто вызываем нашу инициализацию
-    // Substrate автоматически подхватит этот конструктор
-    Initialize();
-}
-
-// Альтернативная точка входа для Substrate (если constructor не сработает)
-// MSHookFunction или другие методы Substrate можно добавить здесь
-
-// =================================================================
-// 13. ДОПОЛНИТЕЛЬНО: ХУКИ ЧЕРЕЗ SUBSTRATE (опционально)
-// =================================================================
-
-// Пример хука на GameController метод (для отладки)
-/*
-static void (*orig_GameController_Update)(id self, SEL _cmd);
-static void hooked_GameController_Update(id self, SEL _cmd) {
-    // Твой код здесь
-    orig_GameController_Update(self, _cmd);
-}
-
-// В Initialize() добавить:
-// MSHookMessageEx(objc_getClass("GameController"), @selector(Update), (IMP)hooked_GameController_Update, (IMP*)&orig_GameController_Update);
-*/
