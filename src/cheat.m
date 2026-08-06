@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// АВТОМАТИЧЕСКИЙ ПОИСК GAMECONTROLLER!
+// ФИНАЛЬНАЯ ВЕРСИЯ: доступ через GameManager!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -26,13 +26,17 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ОФФСЕТЫ (КРОМЕ GAMECONTROLLER — БУДЕТ НАЙДЕН АВТОМАТИЧЕСКИ!)
+// 2. ВСЕ ОФФСЕТЫ (ФИНАЛЬНЫЕ!)
 // =================================================================
 
 uintptr_t baseAddress = 0;
-uintptr_t gameControllerOffset = 0; // Будет найден автоматически
+uintptr_t gameController = 0;
 
-// ====== GAME CONTROLLER (будет найден) ======
+// ====== GAME MANAGER (НОВЫЙ ПУТЬ!) ======
+#define OFFSET_GAMEMANAGER_INSTANCE         0x18   // static GameManager _instance
+#define OFFSET_GAMEMANAGER_GAMECONTROLLER   0x58   // GameController _gameController
+
+// ====== GAME CONTROLLER ======
 #define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
 #define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280
 
@@ -146,42 +150,29 @@ void WriteUInt32(uintptr_t address, uint32_t value) {
 }
 
 // =================================================================
-// 5. АВТОМАТИЧЕСКИЙ ПОИСК GAMECONTROLLER!
+// 5. ПОЛУЧЕНИЕ GAMECONTROLLER (ЧЕРЕЗ GAMEMANAGER!)
 // =================================================================
 
-uintptr_t FindGameController() {
-    WriteLog(@"🔍 SCANNING for GameController...");
+uintptr_t GetGameController() {
+    WriteLog(@"🔍 Getting GameController via GameManager...");
     
-    // Перебираем все возможные оффсеты от 0x08 до 0x50
-    uintptr_t possibleOffsets[] = {
-        0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50,
-        0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0
-    };
-    
-    for (int i = 0; i < 20; i++) {
-        uintptr_t offset = possibleOffsets[i];
-        uintptr_t gc = ReadPtr(baseAddress + offset);
-        
-        if (gc && gc > 0x100000000) {
-            // Проверяем, есть ли камера по оффсету 0xA0
-            uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
-            if (camera && camera > 0x100000000) {
-                // Проверяем, есть ли локальный игрок по оффсету 0x280
-                uintptr_t player = ReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
-                if (player && player > 0x100000000) {
-                    WriteLog([NSString stringWithFormat:@"✅ FOUND GameController at offset 0x%lx!", offset]);
-                    WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
-                    WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
-                    WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
-                    gameControllerOffset = offset;
-                    return gc;
-                }
-            }
-        }
+    // 1. Получаем GameManager._instance (оффсет 0x18)
+    uintptr_t gameManager = ReadPtr(baseAddress + OFFSET_GAMEMANAGER_INSTANCE);
+    if (!gameManager) {
+        WriteLog(@"❌ GameManager._instance is NULL!");
+        return 0;
     }
+    WriteLog([NSString stringWithFormat:@"✅ GameManager: 0x%lx", gameManager]);
     
-    WriteLog(@"❌ GameController NOT found in any offset!");
-    return 0;
+    // 2. Получаем GameController из поля _gameController (оффсет 0x58)
+    uintptr_t gc = ReadPtr(gameManager + OFFSET_GAMEMANAGER_GAMECONTROLLER);
+    if (!gc) {
+        WriteLog(@"❌ GameController is NULL!");
+        return 0;
+    }
+    WriteLog([NSString stringWithFormat:@"✅ GameController: 0x%lx", gc]);
+    
+    return gc;
 }
 
 // =================================================================
@@ -211,7 +202,6 @@ Vector3 GetGlobalPosition(uintptr_t transformPtr) {
 
 float* viewMatrix = NULL;
 float* projectionMatrix = NULL;
-uintptr_t gameController = 0;
 
 uintptr_t GetMainCamera() {
     if (!gameController) return 0;
@@ -516,7 +506,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 13. ТОЧКА ВХОДА С АВТОМАТИЧЕСКИМ ПОИСКОМ
+// 13. ТОЧКА ВХОДА (ЧЕРЕЗ GAMEMANAGER!)
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -528,8 +518,8 @@ __attribute__((constructor)) static void init() {
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        // 🔍 АВТОМАТИЧЕСКИЙ ПОИСК GAMECONTROLLER!
-        gameController = FindGameController();
+        // 🔥 НОВЫЙ ПУТЬ: через GameManager!
+        gameController = GetGameController();
         
         if (!gameController) {
             WriteLog(@"❌ CRITICAL: GameController not found! Cheat will not work.");
