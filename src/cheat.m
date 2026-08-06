@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// ФИНАЛЬНАЯ ВЕРСИЯ — БЕЗ SUBSTRATE (Method Swizzling)
+// ГИБРИДНЫЙ ПОДХОД: поиск GameController с задержкой
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -10,10 +10,10 @@
 #import <QuartzCore/QuartzCore.h>
 
 // =================================================================
-// ПРОТОТИП ФУНКЦИИ (объявление до использования)
+// ПРОТОТИП ФУНКЦИИ
 // =================================================================
 
-void InitializeCheat(void);  // ← ЭТО ИСПРАВЛЯЕТ ОШИБКУ!
+void InitializeCheat(void);
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -32,22 +32,17 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ВСЕ ОФФСЕТЫ (ТОЧНЫЕ ИЗ ДАМПА!)
+// 2. ВСЕ ОФФСЕТЫ
 // =================================================================
 
 uintptr_t baseAddress = 0;
 uintptr_t gameController = 0;
 BOOL cheatInitialized = NO;
 
-// ====== GAME CONTROLLER ======
 #define OFFSET_GAMECONTROLLER_INSTANCE         0x18
 #define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
 #define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280
-
-// ====== SPECTATOR CONTROLLER ======
 #define OFFSET_SPECTATOR_PLAYERS               0x58
-
-// ====== PLAYER CONTROLLER ======
 #define OFFSET_PLAYERCONTROLLER_TEAM           0x49
 #define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
 #define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
@@ -55,7 +50,6 @@ BOOL cheatInitialized = NO;
 #define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
 #define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
 
-// ====== BIPEDMAP ======
 #define OFFSET_BIPED_HEAD                      0x18
 #define OFFSET_BIPED_NECK                      0x20
 #define OFFSET_BIPED_SPINE                     0x28
@@ -77,14 +71,9 @@ BOOL cheatInitialized = NO;
 #define OFFSET_BIPED_RIGHT_LEG                 0xB0
 #define OFFSET_BIPED_RIGHT_FOOT                0xB8
 
-// ====== TRANSFORM ======
 #define OFFSET_TRANSFORM_POSITION              0x10
-
-// ====== CAMERA ======
 #define OFFSET_CAMERA_WORLDTOCAMERA            0xE0
 #define OFFSET_CAMERA_PROJECTION               0x120
-
-// ====== PHOTON PLAYER ======
 #define OFFSET_PHOTONPLAYER_ACTORID            0x10
 #define OFFSET_PHOTONPLAYER_ISLOCAL            0x28
 
@@ -484,70 +473,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 12. SWIZZLING — заменяем init GameController
-// =================================================================
-
-// Оригинальная функция
-static IMP original_GameController_init = NULL;
-
-// Наша замена
-void swizzled_GameController_init(id self, SEL _cmd) {
-    WriteLog(@"🔧 GameController init swizzled!");
-    
-    // Вызываем оригинал
-    if (original_GameController_init) {
-        ((void (*)(id, SEL))original_GameController_init)(self, _cmd);
-    }
-    
-    // Инициализируем чит (только один раз)
-    if (!cheatInitialized) {
-        InitializeCheat();
-    }
-}
-
-// =================================================================
-// 13. ФУНКЦИЯ УСТАНОВКИ SWIZZLING
-// =================================================================
-
-void SetupSwizzling() {
-    WriteLog(@"=== SETTING UP SWIZZLING ===");
-    
-    // Получаем класс GameController
-    Class gcClass = objc_getClass("GameController");
-    if (!gcClass) {
-        WriteLog(@"❌ GameController class not found!");
-        return;
-    }
-    
-    // Пробуем init:
-    SEL initSelector = @selector(init);
-    Method initMethod = class_getInstanceMethod(gcClass, initSelector);
-    
-    if (initMethod) {
-        WriteLog(@"✅ Found GameController.init, swizzling...");
-        original_GameController_init = method_getImplementation(initMethod);
-        method_setImplementation(initMethod, (IMP)swizzled_GameController_init);
-        WriteLog(@"✅ Swizzling set successfully!");
-        return;
-    }
-    
-    // Пробуем initWithCoder:
-    SEL coderSelector = @selector(initWithCoder:);
-    Method coderMethod = class_getInstanceMethod(gcClass, coderSelector);
-    
-    if (coderMethod) {
-        WriteLog(@"✅ Found initWithCoder:, swizzling...");
-        original_GameController_init = method_getImplementation(coderMethod);
-        method_setImplementation(coderMethod, (IMP)swizzled_GameController_init);
-        WriteLog(@"✅ Swizzling set successfully!");
-        return;
-    }
-    
-    WriteLog(@"❌ No suitable init method found!");
-}
-
-// =================================================================
-// 14. ИНИЦИАЛИЗАЦИЯ ЧИТА
+// 12. ИНИЦИАЛИЗАЦИЯ ЧИТА
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -694,24 +620,49 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 15. ТОЧКА ВХОДА
+// 13. ТОЧКА ВХОДА — ПОИСК С ЗАДЕРЖКОЙ
 // =================================================================
 
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
         WriteLog(@"=== CHEAT LOADED ===");
-        WriteLog(@"Setting up swizzling...");
+        WriteLog(@"Starting GameController search (every 0.1s)...");
         
-        // Устанавливаем swizzling
-        SetupSwizzling();
-        
-        // Проверяем, не создан ли GameController уже
         baseAddress = GetBaseAddress();
-        uintptr_t gc = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
-        if (gc) {
-            WriteLog(@"✅ GameController already exists, initializing cheat...");
-            InitializeCheat();
-        }
+        WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
+        
+        int attempts = 0;
+        
+        // Запускаем таймер для поиска GameController
+        [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
+            attempts++;
+            
+            uintptr_t gc = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+            
+            if (gc) {
+                // Проверяем, что это валидный GameController (есть камера)
+                uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
+                if (camera) {
+                    WriteLog([NSString stringWithFormat:@"✅ GameController found after %.1f seconds!", (float)attempts / 10.0f]);
+                    [timer invalidate];
+                    
+                    gameController = gc;
+                    InitializeCheat();
+                    return;
+                }
+            }
+            
+            // Каждые 30 попыток (3 секунды) пишем в лог
+            if (attempts % 30 == 0) {
+                WriteLog([NSString stringWithFormat:@"⏳ Still waiting for GameController... (%ds)", attempts / 10]);
+            }
+            
+            // Через 3 минуты (1800 попыток) останавливаем поиск
+            if (attempts >= 1800) {
+                [timer invalidate];
+                WriteLog(@"❌ GameController not found after 3 minutes!");
+            }
+        }];
         
         WriteLog(@"=== CHEAT SETUP COMPLETED ===");
     }
