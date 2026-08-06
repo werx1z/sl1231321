@@ -1,5 +1,4 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// РАБОТАЕТ БЕЗ PLAYERMANAGER!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -37,7 +36,7 @@ uintptr_t baseAddress = 0;
 #define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x278
 
 // ====== SPECTATOR CONTROLLER ======
-#define OFFSET_SPECTATOR_PLAYERS               0x58   // PhotonPlayer[]* - ВСЕ ИГРОКИ!
+#define OFFSET_SPECTATOR_PLAYERS               0x58
 
 // ====== PLAYER CONTROLLER ======
 #define OFFSET_PLAYERCONTROLLER_TEAM           0x49
@@ -45,9 +44,9 @@ uintptr_t baseAddress = 0;
 #define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
 #define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
 #define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
-#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108  // PhotonPlayer* (обратная связь)
+#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
 
-// ====== BIPEDMAP (скелет) ======
+// ====== BIPEDMAP ======
 #define OFFSET_BIPED_HEAD                      0x18
 #define OFFSET_BIPED_NECK                      0x20
 #define OFFSET_BIPED_SPINE                     0x28
@@ -69,10 +68,10 @@ uintptr_t baseAddress = 0;
 #define OFFSET_BIPED_RIGHT_LEG                 0xB0
 #define OFFSET_BIPED_RIGHT_FOOT                0xB8
 
-// ====== TRANSFORM (Unity) ======
+// ====== TRANSFORM ======
 #define OFFSET_TRANSFORM_POSITION              0x10
 
-// ====== CAMERA (Unity) ======
+// ====== CAMERA ======
 #define OFFSET_CAMERA_WORLDTOCAMERA            0x100
 #define OFFSET_CAMERA_PROJECTION               0x140
 
@@ -81,23 +80,51 @@ uintptr_t baseAddress = 0;
 #define OFFSET_PHOTONPLAYER_ISLOCAL            0x28
 
 // =================================================================
-// 3. ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ
+// 3. ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ (БЕЗ ШАБЛОНОВ!)
 // =================================================================
 
 uintptr_t GetBaseAddress() {
     return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
 }
 
-template <typename T>
-T ReadMemory(uintptr_t address) {
-    if (address == 0 || address < 0x100000000) return T();
-    return *(T*)address;
+// Чтение 1 байта
+uint8_t ReadUInt8(uintptr_t address) {
+    if (address == 0 || address < 0x100000000) return 0;
+    return *(uint8_t*)address;
 }
 
-template <typename T>
-void WriteMemory(uintptr_t address, T value) {
+// Чтение 4 байт (int)
+uint32_t ReadUInt32(uintptr_t address) {
+    if (address == 0 || address < 0x100000000) return 0;
+    return *(uint32_t*)address;
+}
+
+// Чтение 8 байт (указатель)
+uintptr_t ReadPtr(uintptr_t address) {
+    if (address == 0 || address < 0x100000000) return 0;
+    return *(uintptr_t*)address;
+}
+
+// Чтение float
+float ReadFloat(uintptr_t address) {
+    if (address == 0 || address < 0x100000000) return 0;
+    return *(float*)address;
+}
+
+// Чтение Vector3
+Vector3 ReadVector3(uintptr_t address) {
+    Vector3 v = {0, 0, 0};
+    if (address == 0 || address < 0x100000000) return v;
+    v.x = *(float*)(address);
+    v.y = *(float*)(address + 4);
+    v.z = *(float*)(address + 8);
+    return v;
+}
+
+// Запись 4 байт
+void WriteUInt32(uintptr_t address, uint32_t value) {
     if (address == 0 || address < 0x100000000) return;
-    *(T*)address = value;
+    *(uint32_t*)address = value;
 }
 
 // =================================================================
@@ -105,10 +132,11 @@ void WriteMemory(uintptr_t address, T value) {
 // =================================================================
 
 Vector3 GetGlobalPosition(uintptr_t transformPtr) {
-    if (!transformPtr) return Vector3{0, 0, 0};
+    Vector3 zero = {0, 0, 0};
+    if (!transformPtr) return zero;
     
-    Vector3 pos = ReadMemory<Vector3>(transformPtr + OFFSET_TRANSFORM_POSITION);
-    uintptr_t parent = ReadMemory<uintptr_t>(transformPtr + 0x08);
+    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
+    uintptr_t parent = ReadPtr(transformPtr + 0x08);
     
     if (parent) {
         Vector3 parentPos = GetGlobalPosition(parent);
@@ -128,9 +156,9 @@ float* viewMatrix = NULL;
 float* projectionMatrix = NULL;
 
 uintptr_t GetMainCamera() {
-    uintptr_t gameController = ReadMemory<uintptr_t>(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+    uintptr_t gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
     if (!gameController) return 0;
-    return ReadMemory<uintptr_t>(gameController + OFFSET_GAMECONTROLLER_MAINCAMERA);
+    return ReadPtr(gameController + OFFSET_GAMECONTROLLER_MAINCAMERA);
 }
 
 void UpdateMatrices() {
@@ -167,8 +195,8 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
     float ndcX = projPos.x / projPos.w;
     float ndcY = projPos.y / projPos.w;
     
-    int screenWidth = [UIScreen mainScreen].bounds.size.width;
-    int screenHeight = [UIScreen mainScreen].bounds.size.height;
+    int screenWidth = (int)[UIScreen mainScreen].bounds.size.width;
+    int screenHeight = (int)[UIScreen mainScreen].bounds.size.height;
     
     screenPos->x = (ndcX + 1.0f) * 0.5f * screenWidth;
     screenPos->y = (1.0f - ndcY) * 0.5f * screenHeight;
@@ -177,31 +205,31 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 }
 
 // =================================================================
-// 7. ПОЛУЧЕНИЕ ВСЕХ ИГРОКОВ (БЕЗ PLAYERMANAGER!)
+// 7. ПОЛУЧЕНИЕ ИГРОКОВ
 // =================================================================
 
 uintptr_t GetLocalPlayer() {
-    uintptr_t gameController = ReadMemory<uintptr_t>(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+    uintptr_t gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
     if (!gameController) return 0;
-    return ReadMemory<uintptr_t>(gameController + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
+    return ReadPtr(gameController + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
 }
 
 uintptr_t GetSpectatorController() {
-    uintptr_t gameController = ReadMemory<uintptr_t>(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+    uintptr_t gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
     if (!gameController) return 0;
-    return ReadMemory<uintptr_t>(gameController + 0xB8);
+    return ReadPtr(gameController + 0xB8);
 }
 
 uintptr_t GetPlayerList() {
     uintptr_t spectator = GetSpectatorController();
     if (!spectator) return 0;
-    return ReadMemory<uintptr_t>(spectator + OFFSET_SPECTATOR_PLAYERS);
+    return ReadPtr(spectator + OFFSET_SPECTATOR_PLAYERS);
 }
 
 int GetPlayerCount() {
     uintptr_t playerList = GetPlayerList();
     if (!playerList) return 0;
-    return ReadMemory<int>(playerList - 0x8);
+    return (int)ReadUInt32(playerList - 0x8);
 }
 
 // =================================================================
@@ -211,13 +239,12 @@ int GetPlayerCount() {
 uintptr_t GetControllerFromPhotonPlayer(uintptr_t photonPlayer) {
     if (!photonPlayer) return 0;
     
-    int actorId = ReadMemory<int>(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
+    int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
     if (actorId == 0) return 0;
     
-    // Ищем среди всех игроков через PlayerController._player (0x108)
     uintptr_t local = GetLocalPlayer();
     if (local) {
-        uintptr_t player = ReadMemory<uintptr_t>(local + OFFSET_PLAYERCONTROLLER_PLAYER);
+        uintptr_t player = ReadPtr(local + OFFSET_PLAYERCONTROLLER_PLAYER);
         if (player == photonPlayer) {
             return local;
         }
@@ -258,45 +285,57 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
     
     if (!playerControllerPtr) return bones;
     
-    uintptr_t bipedMap = ReadMemory<uintptr_t>(playerControllerPtr + OFFSET_PLAYERCONTROLLER_BIPEDMAP);
+    uintptr_t bipedMap = ReadPtr(playerControllerPtr + OFFSET_PLAYERCONTROLLER_BIPEDMAP);
     if (!bipedMap) {
-        bipedMap = ReadMemory<uintptr_t>(playerControllerPtr + 0x30);
+        bipedMap = ReadPtr(playerControllerPtr + 0x30);
     }
     if (!bipedMap) return bones;
     
-    uintptr_t transforms[] = {
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_HEAD),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_NECK),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_SPINE),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_SPINE1),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_SPINE2),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_SHOULDER),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_UPPERARM),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_FOREARM),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_HAND),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_SHOULDER),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_UPPERARM),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_FOREARM),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_HAND),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_HIP),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_UPLEG),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_LEG),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_LEFT_FOOT),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_UPLEG),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_LEG),
-        ReadMemory<uintptr_t>(bipedMap + OFFSET_BIPED_RIGHT_FOOT)
-    };
+    uintptr_t transforms[20];
+    transforms[0] = ReadPtr(bipedMap + OFFSET_BIPED_HEAD);
+    transforms[1] = ReadPtr(bipedMap + OFFSET_BIPED_NECK);
+    transforms[2] = ReadPtr(bipedMap + OFFSET_BIPED_SPINE);
+    transforms[3] = ReadPtr(bipedMap + OFFSET_BIPED_SPINE1);
+    transforms[4] = ReadPtr(bipedMap + OFFSET_BIPED_SPINE2);
+    transforms[5] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_SHOULDER);
+    transforms[6] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_UPPERARM);
+    transforms[7] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_FOREARM);
+    transforms[8] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_HAND);
+    transforms[9] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_SHOULDER);
+    transforms[10] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_UPPERARM);
+    transforms[11] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_FOREARM);
+    transforms[12] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_HAND);
+    transforms[13] = ReadPtr(bipedMap + OFFSET_BIPED_HIP);
+    transforms[14] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_UPLEG);
+    transforms[15] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_LEG);
+    transforms[16] = ReadPtr(bipedMap + OFFSET_BIPED_LEFT_FOOT);
+    transforms[17] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_UPLEG);
+    transforms[18] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_LEG);
+    transforms[19] = ReadPtr(bipedMap + OFFSET_BIPED_RIGHT_FOOT);
     
-    Vector3* positions[] = {
-        &bones.head, &bones.neck, &bones.spine, &bones.spine1, &bones.spine2,
-        &bones.leftShoulder, &bones.leftUpperarm, &bones.leftForearm, &bones.leftHand,
-        &bones.rightShoulder, &bones.rightUpperarm, &bones.rightForearm, &bones.rightHand,
-        &bones.hip, &bones.leftUpLeg, &bones.leftLeg, &bones.leftFoot,
-        &bones.rightUpLeg, &bones.rightLeg, &bones.rightFoot
-    };
+    Vector3* positions[20];
+    positions[0] = &bones.head;
+    positions[1] = &bones.neck;
+    positions[2] = &bones.spine;
+    positions[3] = &bones.spine1;
+    positions[4] = &bones.spine2;
+    positions[5] = &bones.leftShoulder;
+    positions[6] = &bones.leftUpperarm;
+    positions[7] = &bones.leftForearm;
+    positions[8] = &bones.leftHand;
+    positions[9] = &bones.rightShoulder;
+    positions[10] = &bones.rightUpperarm;
+    positions[11] = &bones.rightForearm;
+    positions[12] = &bones.rightHand;
+    positions[13] = &bones.hip;
+    positions[14] = &bones.leftUpLeg;
+    positions[15] = &bones.leftLeg;
+    positions[16] = &bones.leftFoot;
+    positions[17] = &bones.rightUpLeg;
+    positions[18] = &bones.rightLeg;
+    positions[19] = &bones.rightFoot;
     
-    int count = sizeof(transforms) / sizeof(uintptr_t);
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < 20; i++) {
         if (transforms[i]) {
             *positions[i] = GetGlobalPosition(transforms[i]);
         }
@@ -329,10 +368,10 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
         SkeletonBones bones;
         [playerData[@"bones"] getValue:&bones];
         
-        int team = [playerData[@"team"] intValue];
-        BOOL isMine = [playerData[@"isMine"] boolValue];
-        BOOL isAlive = [playerData[@"isAlive"] boolValue];
-        int playerId = [playerData[@"playerId"] intValue];
+        int team = [[playerData objectForKey:@"team"] intValue];
+        BOOL isMine = [[playerData objectForKey:@"isMine"] boolValue];
+        BOOL isAlive = [[playerData objectForKey:@"isAlive"] boolValue];
+        int playerId = [[playerData objectForKey:@"playerId"] intValue];
         
         if (isMine || !isAlive) continue;
         if (team == self.localTeam) continue;
@@ -340,15 +379,29 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
         Vector2 screenBones[20];
         bool visible[20];
         
-        Vector3 bonePositions[] = {
-            bones.head, bones.neck, bones.spine, bones.spine1, bones.spine2,
-            bones.leftShoulder, bones.leftUpperarm, bones.leftForearm, bones.leftHand,
-            bones.rightShoulder, bones.rightUpperarm, bones.rightForearm, bones.rightHand,
-            bones.hip, bones.leftUpLeg, bones.leftLeg, bones.leftFoot,
-            bones.rightUpLeg, bones.rightLeg, bones.rightFoot
-        };
+        Vector3 bonePositions[20];
+        bonePositions[0] = bones.head;
+        bonePositions[1] = bones.neck;
+        bonePositions[2] = bones.spine;
+        bonePositions[3] = bones.spine1;
+        bonePositions[4] = bones.spine2;
+        bonePositions[5] = bones.leftShoulder;
+        bonePositions[6] = bones.leftUpperarm;
+        bonePositions[7] = bones.leftForearm;
+        bonePositions[8] = bones.leftHand;
+        bonePositions[9] = bones.rightShoulder;
+        bonePositions[10] = bones.rightUpperarm;
+        bonePositions[11] = bones.rightForearm;
+        bonePositions[12] = bones.rightHand;
+        bonePositions[13] = bones.hip;
+        bonePositions[14] = bones.leftUpLeg;
+        bonePositions[15] = bones.leftLeg;
+        bonePositions[16] = bones.leftFoot;
+        bonePositions[17] = bones.rightUpLeg;
+        bonePositions[18] = bones.rightLeg;
+        bonePositions[19] = bones.rightFoot;
         
-        int boneCount = sizeof(bonePositions) / sizeof(Vector3);
+        int boneCount = 20;
         for (int i = 0; i < boneCount; i++) {
             visible[i] = WorldToScreen(bonePositions[i], &screenBones[i]);
         }
@@ -428,7 +481,7 @@ __attribute__((constructor)) static void init() {
         uintptr_t localPlayer = GetLocalPlayer();
         int localTeam = 0;
         if (localPlayer) {
-            localTeam = ReadMemory<uint8_t>(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
+            localTeam = (int)ReadUInt8(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
             NSLog(@"[CHEAT] Local Player found, Team: %d", localTeam);
         }
         
@@ -464,47 +517,43 @@ __attribute__((constructor)) static void init() {
                         return;
                     }
                     
-                    uintptr_t localTransform = ReadMemory<uintptr_t>(local + OFFSET_PLAYERCONTROLLER_TRANSFORM);
+                    uintptr_t localTransform = ReadPtr(local + OFFSET_PLAYERCONTROLLER_TRANSFORM);
                     espView.localPos = GetGlobalPosition(localTransform);
-                    espView.localTeam = ReadMemory<uint8_t>(local + OFFSET_PLAYERCONTROLLER_TEAM);
+                    espView.localTeam = (int)ReadUInt8(local + OFFSET_PLAYERCONTROLLER_TEAM);
                     
                     NSMutableArray *playersArray = [NSMutableArray array];
-                    
-                    // Получаем список всех игроков через SpectatorController
                     uintptr_t playerList = GetPlayerList();
                     
                     if (playerList) {
                         int playerCount = GetPlayerCount();
                         
                         for (int i = 0; i < playerCount; i++) {
-                            uintptr_t photonPlayer = ReadMemory<uintptr_t>(playerList + i * sizeof(uintptr_t));
+                            uintptr_t photonPlayer = ReadPtr(playerList + i * sizeof(uintptr_t));
                             if (!photonPlayer) continue;
                             
-                            bool isLocalPlayer = ReadMemory<bool>(photonPlayer + OFFSET_PHOTONPLAYER_ISLOCAL);
+                            uint8_t isLocalPlayer = ReadUInt8(photonPlayer + OFFSET_PHOTONPLAYER_ISLOCAL);
                             if (isLocalPlayer) continue;
                             
-                            int actorId = ReadMemory<int>(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
+                            int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
                             if (actorId == 0) continue;
                             
-                            // Пытаемся найти PlayerController
                             uintptr_t controller = GetControllerFromPhotonPlayer(photonPlayer);
                             
-                            // Если нашли контроллер — добавляем данные
                             if (controller && controller != local) {
                                 SkeletonBones bones = GetPlayerBones(controller);
-                                int team = ReadMemory<uint8_t>(controller + OFFSET_PLAYERCONTROLLER_TEAM);
-                                int playerId = ReadMemory<int>(controller + OFFSET_PLAYERCONTROLLER_PLAYERID);
-                                bool isAlive = ReadMemory<bool>(controller + OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED);
+                                int team = (int)ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_TEAM);
+                                int playerId = (int)ReadUInt32(controller + OFFSET_PLAYERCONTROLLER_PLAYERID);
+                                uint8_t isAlive = ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED);
                                 
                                 if (!isAlive) continue;
                                 if (team == localTeam) continue;
                                 
                                 NSMutableDictionary *playerData = [NSMutableDictionary dictionary];
                                 [playerData setObject:[NSData dataWithBytes:&bones length:sizeof(SkeletonBones)] forKey:@"bones"];
-                                [playerData setObject:@(team) forKey:@"team"];
-                                [playerData setObject:@(NO) forKey:@"isMine"];
-                                [playerData setObject:@(isAlive) forKey:@"isAlive"];
-                                [playerData setObject:@(playerId) forKey:@"playerId"];
+                                [playerData setObject:[NSNumber numberWithInt:team] forKey:@"team"];
+                                [playerData setObject:[NSNumber numberWithBool:NO] forKey:@"isMine"];
+                                [playerData setObject:[NSNumber numberWithBool:isAlive] forKey:@"isAlive"];
+                                [playerData setObject:[NSNumber numberWithInt:playerId] forKey:@"playerId"];
                                 
                                 [playersArray addObject:playerData];
                             }
