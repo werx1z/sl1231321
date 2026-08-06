@@ -1,4 +1,4 @@
-name: Build Standoff 2 Cheat
+name: Build Cheat Dylib
 
 on:
   push:
@@ -8,16 +8,10 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-
+    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Install insert_dylib
-        run: |
-          curl -L -o insert_dylib https://github.com/Tyilo/insert_dylib/releases/latest/download/insert_dylib
-          chmod +x insert_dylib
-          sudo mv insert_dylib /usr/local/bin/
+        uses: actions/checkout@v4
 
       - name: Compile dylib
         run: |
@@ -35,27 +29,8 @@ jobs:
             -o build/cheat_standleo.dylib \
             src/cheat.m
 
-      - name: Download IPA
-        run: |
-          # ЗАМЕНИТЕ ССЫЛКУ НА РЕАЛЬНУЮ
-          curl -L -o Standoff.ipa "https://example.com/standoff_3.4.ipa"
-
-      - name: Inject dylib into IPA
-        run: |
-          unzip -q Standoff.ipa -d payload/
-          APP_PATH=$(find payload/Payload -name "*.app" -type d | head -n 1)
-          BINARY_NAME=$(basename "$APP_PATH" .app)
-          BINARY_PATH="$APP_PATH/$BINARY_NAME"
-          echo "APP_PATH: $APP_PATH"
-          echo "BINARY: $BINARY_PATH"
-          cp build/cheat_standleo.dylib "$APP_PATH/"
-          insert_dylib @executable_path/cheat_standleo.dylib "$BINARY_PATH" "$BINARY_PATH.patched"
-          mv "$BINARY_PATH.patched" "$BINARY_PATH"
-          cd payload
-          zip -r ../Standoff_cheat.ipa Payload/
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4    # <--- ИСПРАВЛЕНО: v3 -> v4
+      - name: Upload dylib artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: Standoff_cheat
-          path: Standoff_cheat.ipa
+          name: cheat_standleo
+          path: build/cheat_standleo.dylib
