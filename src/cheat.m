@@ -1,4 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
+// С ПОДДЕРЖКОЙ SUBSTRATE!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -7,6 +8,7 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
+#import <substrate.h>  // <--- ПОДКЛЮЧАЕМ SUBSTRATE!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -25,7 +27,7 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ВСЕ ОФФСЕТЫ (БЕЗ PLAYERMANAGER!)
+// 2. ВСЕ ОФФСЕТЫ
 // =================================================================
 
 uintptr_t baseAddress = 0;
@@ -80,38 +82,33 @@ uintptr_t baseAddress = 0;
 #define OFFSET_PHOTONPLAYER_ISLOCAL            0x28
 
 // =================================================================
-// 3. ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ (БЕЗ ШАБЛОНОВ!)
+// 3. ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ
 // =================================================================
 
 uintptr_t GetBaseAddress() {
     return (uintptr_t)_dyld_get_image_vmaddr_slide(0);
 }
 
-// Чтение 1 байта
 uint8_t ReadUInt8(uintptr_t address) {
     if (address == 0 || address < 0x100000000) return 0;
     return *(uint8_t*)address;
 }
 
-// Чтение 4 байт (int)
 uint32_t ReadUInt32(uintptr_t address) {
     if (address == 0 || address < 0x100000000) return 0;
     return *(uint32_t*)address;
 }
 
-// Чтение 8 байт (указатель)
 uintptr_t ReadPtr(uintptr_t address) {
     if (address == 0 || address < 0x100000000) return 0;
     return *(uintptr_t*)address;
 }
 
-// Чтение float
 float ReadFloat(uintptr_t address) {
     if (address == 0 || address < 0x100000000) return 0;
     return *(float*)address;
 }
 
-// Чтение Vector3
 Vector3 ReadVector3(uintptr_t address) {
     Vector3 v = {0, 0, 0};
     if (address == 0 || address < 0x100000000) return v;
@@ -121,7 +118,6 @@ Vector3 ReadVector3(uintptr_t address) {
     return v;
 }
 
-// Запись 4 байт
 void WriteUInt32(uintptr_t address, uint32_t value) {
     if (address == 0 || address < 0x100000000) return;
     *(uint32_t*)address = value;
@@ -461,15 +457,14 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 11. ОСНОВНОЙ КОНСТРУКТОР
+// 11. SUBSTRATE INIT — ГЛАВНЫЙ КОНСТРУКТОР
 // =================================================================
 
-ESPOverlayView *espView = nil;
-
-__attribute__((constructor)) static void init() {
+// Функция, которая будет вызвана при загрузке через Substrate
+static void Initialize() {
     @autoreleasepool {
         NSLog(@"[CHEAT] ========================================");
-        NSLog(@"[CHEAT] Loading Standoff 2 Cheat");
+        NSLog(@"[CHEAT] Loading Standoff 2 Cheat (Substrate)");
         NSLog(@"[CHEAT] ESP + Skeleton + Silent Aim 360");
         NSLog(@"[CHEAT] ========================================");
         
@@ -496,7 +491,7 @@ __attribute__((constructor)) static void init() {
                 return;
             }
             
-            espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
+            ESPOverlayView *espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
             espView.backgroundColor = [UIColor clearColor];
             espView.userInteractionEnabled = NO;
             espView.opaque = NO;
@@ -571,3 +566,33 @@ __attribute__((constructor)) static void init() {
         NSLog(@"[CHEAT] ========================================");
     }
 }
+
+// =================================================================
+// 12. ТОЧКА ВХОДА ДЛЯ SUBSTRATE
+// =================================================================
+
+// Substrate ищет эту функцию при загрузке
+__attribute__((constructor)) static void init() {
+    // Просто вызываем нашу инициализацию
+    // Substrate автоматически подхватит этот конструктор
+    Initialize();
+}
+
+// Альтернативная точка входа для Substrate (если constructor не сработает)
+// MSHookFunction или другие методы Substrate можно добавить здесь
+
+// =================================================================
+// 13. ДОПОЛНИТЕЛЬНО: ХУКИ ЧЕРЕЗ SUBSTRATE (опционально)
+// =================================================================
+
+// Пример хука на GameController метод (для отладки)
+/*
+static void (*orig_GameController_Update)(id self, SEL _cmd);
+static void hooked_GameController_Update(id self, SEL _cmd) {
+    // Твой код здесь
+    orig_GameController_Update(self, _cmd);
+}
+
+// В Initialize() добавить:
+// MSHookMessageEx(objc_getClass("GameController"), @selector(Update), (IMP)hooked_GameController_Update, (IMP*)&orig_GameController_Update);
+*/
