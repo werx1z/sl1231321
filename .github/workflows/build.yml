@@ -26,8 +26,6 @@ jobs:
             -framework OpenGLES \
             -framework QuartzCore \
             -framework CoreGraphics \
-            -I/usr/include/substrate \
-            -lsubstrate \
             -O2 \
             -o build/cheat_standleo.dylib \
             src/cheat.m
