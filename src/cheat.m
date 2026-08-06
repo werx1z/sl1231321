@@ -1,5 +1,7 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// С ХУКАМИ (SUBSTRATE) — БЕЗ ЗАДЕРЖЕК!
+// ФИНАЛЬНАЯ ВЕРСИЯ — БЕЗ SUBSTRATE (Method Swizzling)
+// Работает на любом устройстве, не требует libsubstrate.dylib!
+
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -8,7 +10,6 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
-#import "substrate.h"  // ← Подключаем Substrate!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -27,7 +28,7 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ВСЕ ОФФСЕТЫ (ТОЧНЫЕ!)
+// 2. ВСЕ ОФФСЕТЫ (ТОЧНЫЕ ИЗ ДАМПА!)
 // =================================================================
 
 uintptr_t baseAddress = 0;
@@ -479,7 +480,70 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 12. ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ ЧИТА
+// 12. SWIZZLING — заменяем init GameController
+// =================================================================
+
+// Оригинальная функция
+static IMP original_GameController_init = NULL;
+
+// Наша замена
+void swizzled_GameController_init(id self, SEL _cmd) {
+    WriteLog(@"🔧 GameController init swizzled!");
+    
+    // Вызываем оригинал
+    if (original_GameController_init) {
+        ((void (*)(id, SEL))original_GameController_init)(self, _cmd);
+    }
+    
+    // Инициализируем чит (только один раз)
+    if (!cheatInitialized) {
+        InitializeCheat();
+    }
+}
+
+// =================================================================
+// 13. ФУНКЦИЯ УСТАНОВКИ SWIZZLING
+// =================================================================
+
+void SetupSwizzling() {
+    WriteLog(@"=== SETTING UP SWIZZLING ===");
+    
+    // Получаем класс GameController
+    Class gcClass = objc_getClass("GameController");
+    if (!gcClass) {
+        WriteLog(@"❌ GameController class not found!");
+        return;
+    }
+    
+    // Пробуем init:
+    SEL initSelector = @selector(init);
+    Method initMethod = class_getInstanceMethod(gcClass, initSelector);
+    
+    if (initMethod) {
+        WriteLog(@"✅ Found GameController.init, swizzling...");
+        original_GameController_init = method_getImplementation(initMethod);
+        method_setImplementation(initMethod, (IMP)swizzled_GameController_init);
+        WriteLog(@"✅ Swizzling set successfully!");
+        return;
+    }
+    
+    // Пробуем initWithCoder:
+    SEL coderSelector = @selector(initWithCoder:);
+    Method coderMethod = class_getInstanceMethod(gcClass, coderSelector);
+    
+    if (coderMethod) {
+        WriteLog(@"✅ Found initWithCoder:, swizzling...");
+        original_GameController_init = method_getImplementation(coderMethod);
+        method_setImplementation(coderMethod, (IMP)swizzled_GameController_init);
+        WriteLog(@"✅ Swizzling set successfully!");
+        return;
+    }
+    
+    WriteLog(@"❌ No suitable init method found!");
+}
+
+// =================================================================
+// 14. ИНИЦИАЛИЗАЦИЯ ЧИТА
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -526,6 +590,21 @@ void InitializeCheat() {
         return;
     }
     WriteLog(@"✅ Matrices found!");
+    
+    // Проверяем список игроков
+    uintptr_t spectator = GetSpectatorController();
+    if (spectator) {
+        WriteLog([NSString stringWithFormat:@"SpectatorController: 0x%lx", spectator]);
+        uintptr_t playerList = GetPlayerList();
+        if (playerList) {
+            int count = GetPlayerCount();
+            WriteLog([NSString stringWithFormat:@"✅ Player count: %d", count]);
+        } else {
+            WriteLog(@"⚠️ PlayerList is NULL (might be in menu)");
+        }
+    } else {
+        WriteLog(@"⚠️ SpectatorController is NULL (might be in menu)");
+    }
     
     // Создаём ESP
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -611,73 +690,25 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 13. ТОЧКА ВХОДА — УСТАНАВЛИВАЕМ ХУК!
+// 15. ТОЧКА ВХОДА
 // =================================================================
 
-// Оригинальная функция GameController
-static void (*original_GameController_init)(id self, SEL _cmd);
-
-// Наша подмена
-void hooked_GameController_init(id self, SEL _cmd) {
-    WriteLog(@"🔧 GameController init hooked!");
-    
-    // Вызываем оригинал
-    if (original_GameController_init) {
-        original_GameController_init(self, _cmd);
-    }
-    
-    // Инициализируем чит
-    InitializeCheat();
-}
-
-// Точка входа
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
         WriteLog(@"=== CHEAT LOADED ===");
-        WriteLog(@"Setting up hooks...");
+        WriteLog(@"Setting up swizzling...");
         
-        // Получаем класс GameController
-        Class gcClass = objc_getClass("GameController");
-        if (!gcClass) {
-            WriteLog(@"❌ GameController class not found!");
-            return;
+        // Устанавливаем swizzling
+        SetupSwizzling();
+        
+        // Проверяем, не создан ли GameController уже
+        baseAddress = GetBaseAddress();
+        uintptr_t gc = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+        if (gc) {
+            WriteLog(@"✅ GameController already exists, initializing cheat...");
+            InitializeCheat();
         }
         
-        // Устанавливаем хук на метод init
-        SEL initSelector = @selector(init);
-        Method originalMethod = class_getInstanceMethod(gcClass, initSelector);
-        
-        if (originalMethod) {
-            WriteLog(@"✅ Found GameController.init, setting hook...");
-            
-            // Используем MSHookMessageEx напрямую
-            MSHookMessageEx(
-                gcClass,
-                initSelector,
-                (IMP)&hooked_GameController_init,
-                (IMP*)&original_GameController_init
-            );
-            WriteLog(@"✅ Hook set successfully!");
-        } else {
-            WriteLog(@"⚠️ GameController.init not found, trying initWithCoder:");
-            
-            // Пробуем initWithCoder:
-            SEL coderSelector = @selector(initWithCoder:);
-            Method coderMethod = class_getInstanceMethod(gcClass, coderSelector);
-            
-            if (coderMethod) {
-                MSHookMessageEx(
-                    gcClass,
-                    coderSelector,
-                    (IMP)&hooked_GameController_init,
-                    (IMP*)&original_GameController_init
-                );
-                WriteLog(@"✅ Hook on initWithCoder: set!");
-            } else {
-                WriteLog(@"❌ No suitable init method found!");
-            }
-        }
-        
-        WriteLog(@"=== HOOK SETUP COMPLETED ===");
+        WriteLog(@"=== CHEAT SETUP COMPLETED ===");
     }
 }
