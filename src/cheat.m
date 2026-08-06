@@ -8,7 +8,7 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
-#import <substrate.h>  // ← Подключаем Substrate!
+#import "substrate.h"  // ← Подключаем Substrate!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -649,6 +649,8 @@ __attribute__((constructor)) static void init() {
         
         if (originalMethod) {
             WriteLog(@"✅ Found GameController.init, setting hook...");
+            
+            // Используем MSHookMessageEx напрямую
             MSHookMessageEx(
                 gcClass,
                 initSelector,
