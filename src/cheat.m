@@ -8,7 +8,7 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
-#import <substrate.h>  // ← Подключаем Substrate!
+#import <CydiaSubstrate.h>  // ← Подключаем Substrate!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
