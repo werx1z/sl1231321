@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// ГИБРИДНЫЙ ПОДХОД: поиск GameController с задержкой
+// АВТОМАТИЧЕСКИЙ ПОИСК GAMECONTROLLER В ПАМЯТИ
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -14,6 +14,7 @@
 // =================================================================
 
 void InitializeCheat(void);
+uintptr_t FindGameControllerInMemory(void);
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -39,7 +40,6 @@ uintptr_t baseAddress = 0;
 uintptr_t gameController = 0;
 BOOL cheatInitialized = NO;
 
-#define OFFSET_GAMECONTROLLER_INSTANCE         0x18
 #define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
 #define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280
 #define OFFSET_SPECTATOR_PLAYERS               0x58
@@ -473,7 +473,41 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 12. ИНИЦИАЛИЗАЦИЯ ЧИТА
+// 12. АВТОМАТИЧЕСКИЙ ПОИСК GAMECONTROLLER В ПАМЯТИ
+// =================================================================
+
+uintptr_t FindGameControllerInMemory() {
+    WriteLog(@"🔍 Scanning entire memory for GameController...");
+    
+    // Сканируем память
+    for (uintptr_t addr = 0x100000000; addr < 0x200000000; addr += 0x4) {
+        if (addr < 0x100000000) continue;
+        
+        uintptr_t gc = ReadPtr(addr);
+        if (!gc || gc < 0x100000000) continue;
+        
+        // Проверяем камеру
+        uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
+        if (!camera || camera < 0x100000000) continue;
+        
+        // Проверяем игрока
+        uintptr_t player = ReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
+        if (player && player > 0x100000000) {
+            WriteLog([NSString stringWithFormat:@"✅ Found GameController at address 0x%lx!", addr]);
+            WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
+            WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
+            WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
+            WriteLog([NSString stringWithFormat:@"   Offset from base: 0x%lx", addr - baseAddress]);
+            return gc;
+        }
+    }
+    
+    WriteLog(@"❌ GameController not found in memory scan!");
+    return 0;
+}
+
+// =================================================================
+// 13. ИНИЦИАЛИЗАЦИЯ ЧИТА
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -487,18 +521,14 @@ void InitializeCheat() {
     baseAddress = GetBaseAddress();
     WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
     
-    // Получаем GameController
-    gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
     if (!gameController) {
         WriteLog(@"❌ GameController is NULL!");
         return;
     }
     WriteLog([NSString stringWithFormat:@"✅ GameController: 0x%lx", gameController]);
     
-    // Обновляем матрицы
     UpdateMatrices();
     
-    // Проверяем камеру
     uintptr_t camera = GetMainCamera();
     if (!camera) {
         WriteLog(@"❌ ERROR: Camera is NULL!");
@@ -506,7 +536,6 @@ void InitializeCheat() {
     }
     WriteLog([NSString stringWithFormat:@"Camera: 0x%lx", camera]);
     
-    // Проверяем локального игрока
     uintptr_t localPlayer = GetLocalPlayer();
     if (!localPlayer) {
         WriteLog(@"❌ ERROR: LocalPlayer is NULL!");
@@ -514,14 +543,12 @@ void InitializeCheat() {
     }
     WriteLog([NSString stringWithFormat:@"LocalPlayer: 0x%lx", localPlayer]);
     
-    // Проверяем матрицы
     if (!viewMatrix || !projectionMatrix) {
         WriteLog(@"❌ ERROR: Matrices are NULL!");
         return;
     }
     WriteLog(@"✅ Matrices found!");
     
-    // Проверяем список игроков
     uintptr_t spectator = GetSpectatorController();
     if (spectator) {
         WriteLog([NSString stringWithFormat:@"SpectatorController: 0x%lx", spectator]);
@@ -536,7 +563,6 @@ void InitializeCheat() {
         WriteLog(@"⚠️ SpectatorController is NULL (might be in menu)");
     }
     
-    // Создаём ESP
     dispatch_async(dispatch_get_main_queue(), ^{
         WriteLog(@"Creating ESP overlay...");
         UIWindow *window = [UIApplication sharedApplication].keyWindow;
@@ -561,7 +587,6 @@ void InitializeCheat() {
         [window bringSubviewToFront:espView];
         WriteLog(@"✅ ESP Overlay created!");
         
-        // Таймер для обновления
         [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) {
             @autoreleasepool {
                 UpdateMatrices();
@@ -620,50 +645,25 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 13. ТОЧКА ВХОДА — ПОИСК С ЗАДЕРЖКОЙ (ИСПРАВЛЕНО!)
+// 14. ТОЧКА ВХОДА
 // =================================================================
 
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
         WriteLog(@"=== CHEAT LOADED ===");
-        WriteLog(@"Starting GameController search (every 0.1s)...");
+        WriteLog(@"Starting GameController memory scan...");
         
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        // __block позволяет изменять переменную внутри блока
-        __block int attempts = 0;
+        gameController = FindGameControllerInMemory();
         
-        // Запускаем таймер для поиска GameController
-        [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
-            attempts++;
-            
-            uintptr_t gc = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
-            
-            if (gc) {
-                // Проверяем, что это валидный GameController (есть камера)
-                uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
-                if (camera) {
-                    WriteLog([NSString stringWithFormat:@"✅ GameController found after %.1f seconds!", (float)attempts / 10.0f]);
-                    [timer invalidate];
-                    
-                    gameController = gc;
-                    InitializeCheat();
-                    return;
-                }
-            }
-            
-            // Каждые 30 попыток (3 секунды) пишем в лог
-            if (attempts % 30 == 0) {
-                WriteLog([NSString stringWithFormat:@"⏳ Still waiting for GameController... (%ds)", attempts / 10]);
-            }
-            
-            // Через 3 минуты (1800 попыток) останавливаем поиск
-            if (attempts >= 1800) {
-                [timer invalidate];
-                WriteLog(@"❌ GameController not found after 3 minutes!");
-            }
-        }];
+        if (gameController) {
+            WriteLog(@"✅ GameController found by memory scan!");
+            InitializeCheat();
+        } else {
+            WriteLog(@"❌ GameController NOT found!");
+        }
         
         WriteLog(@"=== CHEAT SETUP COMPLETED ===");
     }
