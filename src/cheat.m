@@ -1,7 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
 // ФИНАЛЬНАЯ ВЕРСИЯ — БЕЗ SUBSTRATE (Method Swizzling)
-// Работает на любом устройстве, не требует libsubstrate.dylib!
-
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -10,6 +8,12 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
+
+// =================================================================
+// ПРОТОТИП ФУНКЦИИ (объявление до использования)
+// =================================================================
+
+void InitializeCheat(void);  // ← ЭТО ИСПРАВЛЯЕТ ОШИБКУ!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
