@@ -620,7 +620,7 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 13. ТОЧКА ВХОДА — ПОИСК С ЗАДЕРЖКОЙ
+// 13. ТОЧКА ВХОДА — ПОИСК С ЗАДЕРЖКОЙ (ИСПРАВЛЕНО!)
 // =================================================================
 
 __attribute__((constructor)) static void init() {
@@ -631,7 +631,8 @@ __attribute__((constructor)) static void init() {
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        int attempts = 0;
+        // __block позволяет изменять переменную внутри блока
+        __block int attempts = 0;
         
         // Запускаем таймер для поиска GameController
         [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
