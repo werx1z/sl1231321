@@ -1,0 +1,71 @@
+name: Build Standoff 2 Cheat
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install insert_dylib
+        run: |
+          curl -L -o insert_dylib https://github.com/Tyilo/insert_dylib/releases/latest/download/insert_dylib
+          chmod +x insert_dylib
+          sudo mv insert_dylib /usr/local/bin/
+
+      - name: Compile dylib
+        run: |
+          mkdir -p build
+          clang -arch arm64 \
+            -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+            -mios-version-min=12.0 \
+            -fobjc-arc \
+            -dynamiclib \
+            -framework Foundation \
+            -framework UIKit \
+            -framework OpenGLES \
+            -framework QuartzCore \
+            -O2 \
+            -o build/cheat_standleo.dylib \
+            src/cheat.m
+
+      - name: Download IPA
+        run: |
+          # ЗАМЕНИ ССЫЛКУ НА РЕАЛЬНУЮ!
+          curl -L -o Standoff.ipa "https://example.com/standoff_3.4.ipa"
+
+      - name: Inject dylib into IPA
+        run: |
+          # Распаковываем IPA
+          unzip -q Standoff.ipa -d payload/
+          
+          # Находим .app
+          APP_PATH=$(find payload/Payload -name "*.app" -type d | head -n 1)
+          BINARY_NAME=$(basename "$APP_PATH" .app)
+          BINARY_PATH="$APP_PATH/$BINARY_NAME"
+          
+          echo "APP_PATH: $APP_PATH"
+          echo "BINARY: $BINARY_PATH"
+          
+          # Копируем dylib внутрь .app
+          cp build/cheat_standleo.dylib "$APP_PATH/"
+          
+          # Внедряем dylib в бинарник
+          insert_dylib @executable_path/cheat_standleo.dylib "$BINARY_PATH" "$BINARY_PATH.patched"
+          mv "$BINARY_PATH.patched" "$BINARY_PATH"
+          
+          # Перепаковываем IPA
+          cd payload
+          zip -r ../Standoff_cheat.ipa Payload/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: Standoff_cheat
+          path: Standoff_cheat.ipa
