@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// ПОИСК ПО СИГНАТУРЕ — БЕЗ СКАНИРОВАНИЯ ВСЕЙ ПАМЯТИ!
+// ПОИСК GAMECONTROLLER В ТЕЧЕНИЕ 3 МИНУТ!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -14,7 +14,7 @@
 // =================================================================
 
 void InitializeCheat(void);
-uintptr_t FindGameControllerBySignature(void);
+uintptr_t FindGameControllerByOffset(void);
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -474,12 +474,10 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 12. ПОИСК GAMECONTROLLER ПО СИГНАТУРЕ (БЕЗ СКАНИРОВАНИЯ!)
+// 12. ПОИСК GAMECONTROLLER ПО ОФФСЕТАМ
 // =================================================================
 
-uintptr_t FindGameControllerBySignature() {
-    WriteLog(@"🔍 Looking for GameController by known offsets...");
-    
+uintptr_t FindGameControllerByOffset() {
     // Пробуем стандартные оффсеты для синглтона
     uintptr_t offsets[] = {
         0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50,
@@ -511,7 +509,6 @@ uintptr_t FindGameControllerBySignature() {
         }
     }
     
-    WriteLog(@"❌ GameController not found by offsets!");
     return 0;
 }
 
@@ -650,7 +647,7 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 14. ТОЧКА ВХОДА
+// 14. ТОЧКА ВХОДА — ПОИСК В ТЕЧЕНИЕ 3 МИНУТ
 // =================================================================
 
 __attribute__((constructor)) static void init() {
@@ -660,15 +657,40 @@ __attribute__((constructor)) static void init() {
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        // Ищем GameController по сигнатуре
-        gameController = FindGameControllerBySignature();
+        WriteLog(@"⏳ Searching for GameController (3 minutes timeout)...");
+        WriteLog(@"⏳ Enter the match and wait...");
         
-        if (gameController) {
-            WriteLog(@"✅ GameController found!");
-            InitializeCheat();
-        } else {
-            WriteLog(@"❌ GameController NOT found!");
-        }
+        __block int attempts = 0;
+        __block BOOL found = NO;
+        
+        // Запускаем таймер для поиска GameController
+        [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
+            attempts++;
+            
+            uintptr_t gc = FindGameControllerByOffset();
+            
+            if (gc) {
+                WriteLog([NSString stringWithFormat:@"✅ GameController found after %.1f seconds!", (float)attempts / 10.0f]);
+                [timer invalidate];
+                found = YES;
+                
+                gameController = gc;
+                InitializeCheat();
+                return;
+            }
+            
+            // Каждые 30 попыток (3 секунды) пишем в лог
+            if (attempts % 30 == 0) {
+                WriteLog([NSString stringWithFormat:@"⏳ Still waiting for GameController... (%ds)", attempts / 10]);
+            }
+            
+            // Через 3 минуты (1800 попыток) останавливаем поиск
+            if (attempts >= 1800) {
+                [timer invalidate];
+                WriteLog(@"❌ GameController not found after 3 minutes!");
+                WriteLog(@"❌ Cheat will not work!");
+            }
+        }];
         
         WriteLog(@"=== CHEAT SETUP COMPLETED ===");
     }
