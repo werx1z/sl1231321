@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// БЕЗОПАСНОЕ СКАНИРОВАНИЕ ПАМЯТИ!
+// ПОИСК ПО СИГНАТУРЕ — БЕЗ СКАНИРОВАНИЯ ВСЕЙ ПАМЯТИ!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -14,9 +14,7 @@
 // =================================================================
 
 void InitializeCheat(void);
-uintptr_t FindGameControllerInMemory(void);
-bool IsAddressReadable(uintptr_t addr);
-uintptr_t SafeReadPtr(uintptr_t address);
+uintptr_t FindGameControllerBySignature(void);
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -113,31 +111,30 @@ uintptr_t GetBaseAddress() {
 bool IsAddressReadable(uintptr_t addr) {
     if (addr < 0x100000000) return false;
     if (addr > 0x200000000) return false;
-    if (addr % 4 != 0) return false; // выравнивание
     return true;
 }
 
-uintptr_t SafeReadPtr(uintptr_t address) {
+uintptr_t ReadPtr(uintptr_t address) {
     if (!IsAddressReadable(address)) return 0;
     return *(uintptr_t*)address;
 }
 
-uint8_t SafeReadUInt8(uintptr_t address) {
+uint8_t ReadUInt8(uintptr_t address) {
     if (!IsAddressReadable(address)) return 0;
     return *(uint8_t*)address;
 }
 
-uint32_t SafeReadUInt32(uintptr_t address) {
+uint32_t ReadUInt32(uintptr_t address) {
     if (!IsAddressReadable(address)) return 0;
     return *(uint32_t*)address;
 }
 
-float SafeReadFloat(uintptr_t address) {
+float ReadFloat(uintptr_t address) {
     if (!IsAddressReadable(address)) return 0;
     return *(float*)address;
 }
 
-Vector3 SafeReadVector3(uintptr_t address) {
+Vector3 ReadVector3(uintptr_t address) {
     Vector3 v = {0, 0, 0};
     if (!IsAddressReadable(address)) return v;
     v.x = *(float*)(address);
@@ -147,17 +144,7 @@ Vector3 SafeReadVector3(uintptr_t address) {
 }
 
 // =================================================================
-// 5. ЗАМЕНА ReadPtr НА SafeReadPtr
-// =================================================================
-
-#define ReadPtr SafeReadPtr
-#define ReadUInt8 SafeReadUInt8
-#define ReadUInt32 SafeReadUInt32
-#define ReadFloat SafeReadFloat
-#define ReadVector3 SafeReadVector3
-
-// =================================================================
-// 6. РАБОТА С UNITY TRANSFORM
+// 5. РАБОТА С UNITY TRANSFORM
 // =================================================================
 
 Vector3 GetGlobalPosition(uintptr_t transformPtr) {
@@ -178,7 +165,7 @@ Vector3 GetGlobalPosition(uintptr_t transformPtr) {
 }
 
 // =================================================================
-// 7. ПОЛУЧЕНИЕ КАМЕРЫ И МАТРИЦ
+// 6. ПОЛУЧЕНИЕ КАМЕРЫ И МАТРИЦ
 // =================================================================
 
 float* viewMatrix = NULL;
@@ -198,7 +185,7 @@ void UpdateMatrices() {
 }
 
 // =================================================================
-// 8. МИР -> ЭКРАН
+// 7. МИР -> ЭКРАН
 // =================================================================
 
 bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
@@ -233,7 +220,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 }
 
 // =================================================================
-// 9. ПОЛУЧЕНИЕ ИГРОКОВ
+// 8. ПОЛУЧЕНИЕ ИГРОКОВ
 // =================================================================
 
 uintptr_t GetLocalPlayer() {
@@ -259,7 +246,7 @@ int GetPlayerCount() {
 }
 
 // =================================================================
-// 10. ПОЛУЧЕНИЕ PLAYERCONTROLLER ИЗ PHOTONPLAYER
+// 9. ПОЛУЧЕНИЕ PLAYERCONTROLLER ИЗ PHOTONPLAYER
 // =================================================================
 
 uintptr_t GetControllerFromPhotonPlayer(uintptr_t photonPlayer) {
@@ -280,7 +267,7 @@ uintptr_t GetControllerFromPhotonPlayer(uintptr_t photonPlayer) {
 }
 
 // =================================================================
-// 11. ПОЛУЧЕНИЕ СКЕЛЕТА
+// 10. ПОЛУЧЕНИЕ СКЕЛЕТА
 // =================================================================
 
 typedef struct {
@@ -371,7 +358,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 }
 
 // =================================================================
-// 12. ESP ОВЕРЛЕЙ
+// 11. ESP ОВЕРЛЕЙ
 // =================================================================
 
 @interface ESPOverlayView : UIView
@@ -487,51 +474,49 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 13. БЕЗОПАСНЫЙ ПОИСК GAMECONTROLLER
+// 12. ПОИСК GAMECONTROLLER ПО СИГНАТУРЕ (БЕЗ СКАНИРОВАНИЯ!)
 // =================================================================
 
-uintptr_t FindGameControllerInMemory() {
-    WriteLog(@"🔍 Scanning memory for GameController (safe)...");
+uintptr_t FindGameControllerBySignature() {
+    WriteLog(@"🔍 Looking for GameController by known offsets...");
     
-    int scanned = 0;
+    // Пробуем стандартные оффсеты для синглтона
+    uintptr_t offsets[] = {
+        0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50,
+        0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0,
+        0xA8, 0xB0, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0
+    };
     
-    // Сканируем только основные диапазоны
-    for (uintptr_t addr = 0x100000000; addr < 0x180000000; addr += 0x1000) {
-        scanned++;
-        if (scanned % 10000 == 0) {
-            WriteLog([NSString stringWithFormat:@"   Scanned 0x%lx addresses...", addr]);
-        }
+    for (int i = 0; i < 30; i++) {
+        uintptr_t offset = offsets[i];
+        uintptr_t addr = baseAddress + offset;
         
-        // Проверяем каждый 4-й байт в странице
-        for (uintptr_t offset = 0; offset < 0x1000; offset += 0x4) {
-            uintptr_t testAddr = addr + offset;
-            if (!IsAddressReadable(testAddr)) continue;
-            
-            uintptr_t gc = SafeReadPtr(testAddr);
-            if (!gc || gc < 0x100000000 || gc > 0x200000000) continue;
-            
-            // Проверяем камеру
-            uintptr_t camera = SafeReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
-            if (!camera || camera < 0x100000000) continue;
-            
-            // Проверяем игрока
-            uintptr_t player = SafeReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
-            if (player && player > 0x100000000 && player < 0x200000000) {
-                WriteLog([NSString stringWithFormat:@"✅ Found GameController at address 0x%lx!", testAddr]);
-                WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
-                WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
-                WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
-                return gc;
-            }
+        if (!IsAddressReadable(addr)) continue;
+        
+        uintptr_t gc = ReadPtr(addr);
+        if (!gc || gc < 0x100000000 || gc > 0x200000000) continue;
+        
+        // Проверяем камеру
+        uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
+        if (!camera || camera < 0x100000000) continue;
+        
+        // Проверяем игрока
+        uintptr_t player = ReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
+        if (player && player > 0x100000000 && player < 0x200000000) {
+            WriteLog([NSString stringWithFormat:@"✅ Found GameController at offset 0x%lx!", offset]);
+            WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
+            WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
+            WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
+            return gc;
         }
     }
     
-    WriteLog(@"❌ GameController not found!");
+    WriteLog(@"❌ GameController not found by offsets!");
     return 0;
 }
 
 // =================================================================
-// 14. ИНИЦИАЛИЗАЦИЯ ЧИТА
+// 13. ИНИЦИАЛИЗАЦИЯ ЧИТА
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -665,21 +650,21 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 15. ТОЧКА ВХОДА
+// 14. ТОЧКА ВХОДА
 // =================================================================
 
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
         WriteLog(@"=== CHEAT LOADED ===");
-        WriteLog(@"Starting GameController memory scan...");
         
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        gameController = FindGameControllerInMemory();
+        // Ищем GameController по сигнатуре
+        gameController = FindGameControllerBySignature();
         
         if (gameController) {
-            WriteLog(@"✅ GameController found by memory scan!");
+            WriteLog(@"✅ GameController found!");
             InitializeCheat();
         } else {
             WriteLog(@"❌ GameController NOT found!");
