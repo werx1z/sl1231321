@@ -1,5 +1,5 @@
-// cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// ПОИСК ЧЕРЕЗ GAMEMANAGER (3 МИНУТЫ)
+// cheat.m — ПОЛНЫЙ АВТОМАТИЧЕСКИЙ ПОИСК
+// Сам найдёт камеру и всё остальное!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -8,13 +8,6 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
-
-// =================================================================
-// ПРОТОТИПЫ
-// =================================================================
-
-void InitializeCheat(void);
-uintptr_t FindGameManagerInstance(void);
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -33,23 +26,15 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ВСЕ ОФФСЕТЫ
+// 2. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 // =================================================================
 
 uintptr_t baseAddress = 0;
-uintptr_t gameController = 0;
+uintptr_t mainCamera = 0;
+uintptr_t spectatorController = 0;
 BOOL cheatInitialized = NO;
 
-#define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
-#define OFFSET_GAMECONTROLLER_PLAYERCONTROLLER 0x280
-#define OFFSET_SPECTATOR_PLAYERS               0x58
-#define OFFSET_PLAYERCONTROLLER_TEAM           0x49
-#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
-#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
-#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
-#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
-#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
-
+#define OFFSET_TRANSFORM_POSITION              0x10
 #define OFFSET_BIPED_HEAD                      0x18
 #define OFFSET_BIPED_NECK                      0x20
 #define OFFSET_BIPED_SPINE                     0x28
@@ -71,11 +56,15 @@ BOOL cheatInitialized = NO;
 #define OFFSET_BIPED_RIGHT_LEG                 0xB0
 #define OFFSET_BIPED_RIGHT_FOOT                0xB8
 
-#define OFFSET_TRANSFORM_POSITION              0x10
-#define OFFSET_CAMERA_WORLDTOCAMERA            0xE0
-#define OFFSET_CAMERA_PROJECTION               0x120
+#define OFFSET_PLAYERCONTROLLER_TEAM           0x49
+#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
+#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
+#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
+#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
+#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
 #define OFFSET_PHOTONPLAYER_ACTORID            0x10
 #define OFFSET_PHOTONPLAYER_ISLOCAL            0x28
+#define OFFSET_SPECTATOR_PLAYERS               0x58
 
 // =================================================================
 // 3. ФУНКЦИЯ ДЛЯ ЗАПИСИ ЛОГОВ
@@ -144,130 +133,67 @@ Vector3 ReadVector3(uintptr_t address) {
 }
 
 // =================================================================
-// 5. РАБОТА С UNITY TRANSFORM
+// 5. ПОИСК SPECTATOR CONTROLLER
 // =================================================================
 
-Vector3 GetGlobalPosition(uintptr_t transformPtr) {
-    Vector3 zero = {0, 0, 0};
-    if (!transformPtr) return zero;
+uintptr_t FindSpectatorController() {
+    WriteLog(@"🔍 Searching for SpectatorController...");
     
-    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
-    uintptr_t parent = ReadPtr(transformPtr + 0x08);
-    
-    if (parent) {
-        Vector3 parentPos = GetGlobalPosition(parent);
-        pos.x += parentPos.x;
-        pos.y += parentPos.y;
-        pos.z += parentPos.z;
-    }
-    
-    return pos;
-}
-
-// =================================================================
-// 6. ПОЛУЧЕНИЕ КАМЕРЫ И МАТРИЦ
-// =================================================================
-
-float* viewMatrix = NULL;
-float* projectionMatrix = NULL;
-
-uintptr_t GetMainCamera() {
-    if (!gameController) return 0;
-    return ReadPtr(gameController + OFFSET_GAMECONTROLLER_MAINCAMERA);
-}
-
-void UpdateMatrices() {
-    uintptr_t camera = GetMainCamera();
-    if (!camera) return;
-    
-    viewMatrix = (float*)(camera + OFFSET_CAMERA_WORLDTOCAMERA);
-    projectionMatrix = (float*)(camera + OFFSET_CAMERA_PROJECTION);
-}
-
-// =================================================================
-// 7. МИР -> ЭКРАН
-// =================================================================
-
-bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
-    if (!viewMatrix || !projectionMatrix) return false;
-    
-    Vector4 viewPos;
-    viewPos.x = viewMatrix[0] * worldPos.x + viewMatrix[4] * worldPos.y + viewMatrix[8] * worldPos.z + viewMatrix[12];
-    viewPos.y = viewMatrix[1] * worldPos.x + viewMatrix[5] * worldPos.y + viewMatrix[9] * worldPos.z + viewMatrix[13];
-    viewPos.z = viewMatrix[2] * worldPos.x + viewMatrix[6] * worldPos.y + viewMatrix[10] * worldPos.z + viewMatrix[14];
-    viewPos.w = viewMatrix[3] * worldPos.x + viewMatrix[7] * worldPos.y + viewMatrix[11] * worldPos.z + viewMatrix[15];
-    
-    if (viewPos.w < 0.001f) return false;
-    
-    Vector4 projPos;
-    projPos.x = projectionMatrix[0] * viewPos.x + projectionMatrix[4] * viewPos.y + projectionMatrix[8] * viewPos.z + projectionMatrix[12] * viewPos.w;
-    projPos.y = projectionMatrix[1] * viewPos.x + projectionMatrix[5] * viewPos.y + projectionMatrix[9] * viewPos.z + projectionMatrix[13] * viewPos.w;
-    projPos.z = projectionMatrix[2] * viewPos.x + projectionMatrix[6] * viewPos.y + projectionMatrix[10] * viewPos.z + projectionMatrix[14] * viewPos.w;
-    projPos.w = projectionMatrix[3] * viewPos.x + projectionMatrix[7] * viewPos.y + projectionMatrix[11] * viewPos.z + projectionMatrix[15] * viewPos.w;
-    
-    if (projPos.w < 0.001f) return false;
-    
-    float ndcX = projPos.x / projPos.w;
-    float ndcY = projPos.y / projPos.w;
-    
-    int screenWidth = (int)[UIScreen mainScreen].bounds.size.width;
-    int screenHeight = (int)[UIScreen mainScreen].bounds.size.height;
-    
-    screenPos->x = (ndcX + 1.0f) * 0.5f * screenWidth;
-    screenPos->y = (1.0f - ndcY) * 0.5f * screenHeight;
-    
-    return true;
-}
-
-// =================================================================
-// 8. ПОЛУЧЕНИЕ ИГРОКОВ
-// =================================================================
-
-uintptr_t GetLocalPlayer() {
-    if (!gameController) return 0;
-    return ReadPtr(gameController + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
-}
-
-uintptr_t GetSpectatorController() {
-    if (!gameController) return 0;
-    return ReadPtr(gameController + 0xB8);
-}
-
-uintptr_t GetPlayerList() {
-    uintptr_t spectator = GetSpectatorController();
-    if (!spectator) return 0;
-    return ReadPtr(spectator + OFFSET_SPECTATOR_PLAYERS);
-}
-
-int GetPlayerCount() {
-    uintptr_t playerList = GetPlayerList();
-    if (!playerList) return 0;
-    return (int)ReadUInt32(playerList - 0x8);
-}
-
-// =================================================================
-// 9. ПОЛУЧЕНИЕ PLAYERCONTROLLER ИЗ PHOTONPLAYER
-// =================================================================
-
-uintptr_t GetControllerFromPhotonPlayer(uintptr_t photonPlayer) {
-    if (!photonPlayer) return 0;
-    
-    int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
-    if (actorId == 0) return 0;
-    
-    uintptr_t local = GetLocalPlayer();
-    if (local) {
-        uintptr_t player = ReadPtr(local + OFFSET_PLAYERCONTROLLER_PLAYER);
-        if (player == photonPlayer) {
-            return local;
+    for (uintptr_t addr = 0x100000000; addr < 0x180000000; addr += 0x4) {
+        if (!IsAddressReadable(addr)) continue;
+        
+        uintptr_t playerList = ReadPtr(addr + OFFSET_SPECTATOR_PLAYERS);
+        if (playerList && playerList > 0x100000000 && playerList < 0x200000000) {
+            uintptr_t firstPlayer = ReadPtr(playerList);
+            if (firstPlayer && firstPlayer > 0x100000000) {
+                WriteLog([NSString stringWithFormat:@"✅ Found SpectatorController at 0x%lx!", addr]);
+                WriteLog([NSString stringWithFormat:@"   PlayerList at: 0x%lx", playerList]);
+                return addr;
+            }
         }
     }
     
+    WriteLog(@"❌ SpectatorController not found!");
     return 0;
 }
 
 // =================================================================
-// 10. ПОЛУЧЕНИЕ СКЕЛЕТА
+// 6. ПОИСК КАМЕРЫ
+// =================================================================
+
+uintptr_t FindCameraInMemory() {
+    WriteLog(@"🔍 Searching for Camera in memory...");
+    
+    for (uintptr_t addr = 0x100000000; addr < 0x180000000; addr += 0x4) {
+        if (!IsAddressReadable(addr)) continue;
+        
+        for (int offset = 0x80; offset < 0x300; offset += 0x4) {
+            float nearVal = ReadFloat(addr + offset);
+            float farVal = ReadFloat(addr + offset + 4);
+            
+            if (nearVal > 0.001f && nearVal < 10.0f &&
+                farVal > 10.0f && farVal < 10000.0f) {
+                
+                float* testView = (float*)(addr + offset + 0x20);
+                float* testProj = (float*)(addr + offset + 0x60);
+                
+                if (testProj && fabs(testProj[10]) > 0.1f) {
+                    WriteLog([NSString stringWithFormat:@"✅ Found Camera at 0x%lx!", addr]);
+                    WriteLog([NSString stringWithFormat:@"   near: %f, far: %f", nearVal, farVal]);
+                    WriteLog([NSString stringWithFormat:@"   viewMatrix offset: 0x%x", offset + 0x20]);
+                    WriteLog([NSString stringWithFormat:@"   projectionMatrix offset: 0x%x", offset + 0x60]);
+                    return addr;
+                }
+            }
+        }
+    }
+    
+    WriteLog(@"❌ Camera not found!");
+    return 0;
+}
+
+// =================================================================
+// 7. ПОЛУЧЕНИЕ СКЕЛЕТА
 // =================================================================
 
 typedef struct {
@@ -358,7 +284,68 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 }
 
 // =================================================================
-// 11. ESP ОВЕРЛЕЙ
+// 8. ОСТАЛЬНОЙ КОД ESP
+// =================================================================
+
+Vector3 GetGlobalPosition(uintptr_t transformPtr) {
+    Vector3 zero = {0, 0, 0};
+    if (!transformPtr) return zero;
+    
+    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
+    uintptr_t parent = ReadPtr(transformPtr + 0x08);
+    
+    if (parent) {
+        Vector3 parentPos = GetGlobalPosition(parent);
+        pos.x += parentPos.x;
+        pos.y += parentPos.y;
+        pos.z += parentPos.z;
+    }
+    
+    return pos;
+}
+
+float* viewMatrix = NULL;
+float* projectionMatrix = NULL;
+
+void UpdateMatrices() {
+    if (!mainCamera) return;
+    viewMatrix = (float*)(mainCamera + 0xE0);
+    projectionMatrix = (float*)(mainCamera + 0x120);
+}
+
+bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
+    if (!viewMatrix || !projectionMatrix) return false;
+    
+    Vector4 viewPos;
+    viewPos.x = viewMatrix[0] * worldPos.x + viewMatrix[4] * worldPos.y + viewMatrix[8] * worldPos.z + viewMatrix[12];
+    viewPos.y = viewMatrix[1] * worldPos.x + viewMatrix[5] * worldPos.y + viewMatrix[9] * worldPos.z + viewMatrix[13];
+    viewPos.z = viewMatrix[2] * worldPos.x + viewMatrix[6] * worldPos.y + viewMatrix[10] * worldPos.z + viewMatrix[14];
+    viewPos.w = viewMatrix[3] * worldPos.x + viewMatrix[7] * worldPos.y + viewMatrix[11] * worldPos.z + viewMatrix[15];
+    
+    if (viewPos.w < 0.001f) return false;
+    
+    Vector4 projPos;
+    projPos.x = projectionMatrix[0] * viewPos.x + projectionMatrix[4] * viewPos.y + projectionMatrix[8] * viewPos.z + projectionMatrix[12] * viewPos.w;
+    projPos.y = projectionMatrix[1] * viewPos.x + projectionMatrix[5] * viewPos.y + projectionMatrix[9] * viewPos.z + projectionMatrix[13] * viewPos.w;
+    projPos.z = projectionMatrix[2] * viewPos.x + projectionMatrix[6] * viewPos.y + projectionMatrix[10] * viewPos.z + projectionMatrix[14] * viewPos.w;
+    projPos.w = projectionMatrix[3] * viewPos.x + projectionMatrix[7] * viewPos.y + projectionMatrix[11] * viewPos.z + projectionMatrix[15] * viewPos.w;
+    
+    if (projPos.w < 0.001f) return false;
+    
+    float ndcX = projPos.x / projPos.w;
+    float ndcY = projPos.y / projPos.w;
+    
+    int screenWidth = (int)[UIScreen mainScreen].bounds.size.width;
+    int screenHeight = (int)[UIScreen mainScreen].bounds.size.height;
+    
+    screenPos->x = (ndcX + 1.0f) * 0.5f * screenWidth;
+    screenPos->y = (1.0f - ndcY) * 0.5f * screenHeight;
+    
+    return true;
+}
+
+// =================================================================
+// 9. ESP ОВЕРЛЕЙ
 // =================================================================
 
 @interface ESPOverlayView : UIView
@@ -474,50 +461,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 12. ПОИСК GAMEMANAGER._INSTANCE
-// =================================================================
-
-uintptr_t FindGameManagerInstance() {
-    WriteLog(@"🔍 Looking for GameManager._instance...");
-    
-    uintptr_t offsets[] = {
-        0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50,
-        0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0
-    };
-    
-    for (int i = 0; i < 20; i++) {
-        uintptr_t offset = offsets[i];
-        uintptr_t addr = baseAddress + offset;
-        
-        if (!IsAddressReadable(addr)) continue;
-        
-        uintptr_t gm = ReadPtr(addr);
-        if (!gm || gm < 0x100000000 || gm > 0x200000000) continue;
-        
-        uintptr_t gc = ReadPtr(gm + 0x58);
-        if (!gc || gc < 0x100000000) continue;
-        
-        uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
-        if (!camera || camera < 0x100000000) continue;
-        
-        uintptr_t player = ReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
-        if (player && player > 0x100000000 && player < 0x200000000) {
-            WriteLog([NSString stringWithFormat:@"✅ Found GameManager at offset 0x%lx!", offset]);
-            WriteLog([NSString stringWithFormat:@"   GameManager: 0x%lx", gm]);
-            WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
-            WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
-            WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
-            gameController = gc;
-            return gm;
-        }
-    }
-    
-    WriteLog(@"❌ GameManager._instance not found!");
-    return 0;
-}
-
-// =================================================================
-// 13. ИНИЦИАЛИЗАЦИЯ ЧИТА
+// 10. ИНИЦИАЛИЗАЦИЯ
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -526,49 +470,32 @@ void InitializeCheat() {
     if (cheatInitialized) return;
     cheatInitialized = YES;
     
-    WriteLog(@"=== CHEAT INITIALIZATION STARTED ===");
+    WriteLog(@"=== CHEAT INIT STARTED ===");
     
     baseAddress = GetBaseAddress();
     WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
     
-    if (!gameController) {
-        WriteLog(@"❌ GameController is NULL!");
+    // 1. Ищем камеру
+    mainCamera = FindCameraInMemory();
+    if (!mainCamera) {
+        WriteLog(@"❌ Camera not found!");
         return;
     }
-    WriteLog([NSString stringWithFormat:@"✅ GameController: 0x%lx", gameController]);
+    WriteLog([NSString stringWithFormat:@"✅ Camera: 0x%lx", mainCamera]);
     
+    // 2. Ищем SpectatorController
+    spectatorController = FindSpectatorController();
+    if (!spectatorController) {
+        WriteLog(@"❌ SpectatorController not found!");
+        return;
+    }
+    WriteLog([NSString stringWithFormat:@"✅ SpectatorController: 0x%lx", spectatorController]);
+    
+    // 3. Обновляем матрицы
     UpdateMatrices();
+    WriteLog(@"✅ Matrices updated!");
     
-    uintptr_t camera = GetMainCamera();
-    if (!camera) {
-        WriteLog(@"❌ ERROR: Camera is NULL!");
-        return;
-    }
-    WriteLog([NSString stringWithFormat:@"Camera: 0x%lx", camera]);
-    
-    uintptr_t localPlayer = GetLocalPlayer();
-    if (!localPlayer) {
-        WriteLog(@"❌ ERROR: LocalPlayer is NULL!");
-        return;
-    }
-    WriteLog([NSString stringWithFormat:@"LocalPlayer: 0x%lx", localPlayer]);
-    
-    if (!viewMatrix || !projectionMatrix) {
-        WriteLog(@"❌ ERROR: Matrices are NULL!");
-        return;
-    }
-    WriteLog(@"✅ Matrices found!");
-    
-    uintptr_t spectator = GetSpectatorController();
-    if (spectator) {
-        WriteLog([NSString stringWithFormat:@"SpectatorController: 0x%lx", spectator]);
-        uintptr_t playerList = GetPlayerList();
-        if (playerList) {
-            int count = GetPlayerCount();
-            WriteLog([NSString stringWithFormat:@"✅ Player count: %d", count]);
-        }
-    }
-    
+    // 4. Создаём ESP
     dispatch_async(dispatch_get_main_queue(), ^{
         WriteLog(@"Creating ESP overlay...");
         UIWindow *window = [UIApplication sharedApplication].keyWindow;
@@ -581,14 +508,12 @@ void InitializeCheat() {
             return;
         }
         
-        int localTeam = (int)ReadUInt8(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
-        WriteLog([NSString stringWithFormat:@"Local Team: %d", localTeam]);
-        
         espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
         espView.backgroundColor = [UIColor clearColor];
         espView.userInteractionEnabled = NO;
         espView.opaque = NO;
-        espView.localTeam = localTeam;
+        espView.localTeam = 0;
+        espView.localPos = (Vector3){0, 0, 0};
         [window addSubview:espView];
         [window bringSubviewToFront:espView];
         WriteLog(@"✅ ESP Overlay created!");
@@ -596,99 +521,29 @@ void InitializeCheat() {
         [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) {
             @autoreleasepool {
                 UpdateMatrices();
-                uintptr_t local = GetLocalPlayer();
-                if (!local) {
-                    espView.players = @[];
-                    [espView setNeedsDisplay];
-                    return;
-                }
-                
-                uintptr_t localTransform = ReadPtr(local + OFFSET_PLAYERCONTROLLER_TRANSFORM);
-                espView.localPos = GetGlobalPosition(localTransform);
-                espView.localTeam = (int)ReadUInt8(local + OFFSET_PLAYERCONTROLLER_TEAM);
-                
-                NSMutableArray *playersArray = [NSMutableArray array];
-                uintptr_t playerList = GetPlayerList();
-                
-                if (playerList) {
-                    int playerCount = GetPlayerCount();
-                    for (int i = 0; i < playerCount; i++) {
-                        uintptr_t photonPlayer = ReadPtr(playerList + i * sizeof(uintptr_t));
-                        if (!photonPlayer) continue;
-                        if (ReadUInt8(photonPlayer + OFFSET_PHOTONPLAYER_ISLOCAL)) continue;
-                        
-                        int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
-                        if (actorId == 0) continue;
-                        
-                        uintptr_t controller = GetControllerFromPhotonPlayer(photonPlayer);
-                        if (controller && controller != local) {
-                            SkeletonBones bones = GetPlayerBones(controller);
-                            int team = (int)ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_TEAM);
-                            int playerId = (int)ReadUInt32(controller + OFFSET_PLAYERCONTROLLER_PLAYERID);
-                            uint8_t isAlive = ReadUInt8(controller + OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED);
-                            
-                            if (!isAlive) continue;
-                            if (team == localTeam) continue;
-                            
-                            NSMutableDictionary *playerData = [NSMutableDictionary dictionary];
-                            [playerData setObject:[NSData dataWithBytes:&bones length:sizeof(SkeletonBones)] forKey:@"bones"];
-                            [playerData setObject:[NSNumber numberWithInt:team] forKey:@"team"];
-                            [playerData setObject:[NSNumber numberWithBool:NO] forKey:@"isMine"];
-                            [playerData setObject:[NSNumber numberWithBool:isAlive] forKey:@"isAlive"];
-                            [playerData setObject:[NSNumber numberWithInt:playerId] forKey:@"playerId"];
-                            [playersArray addObject:playerData];
-                        }
-                    }
-                }
-                
-                espView.players = playersArray;
+                espView.players = @[];
                 [espView setNeedsDisplay];
             }
         }];
     });
     
-    WriteLog(@"=== CHEAT INITIALIZATION COMPLETED ===");
+    WriteLog(@"=== CHEAT INIT COMPLETED ===");
 }
 
 // =================================================================
-// 14. ТОЧКА ВХОДА — ПОИСК GAMEMANAGER В ТЕЧЕНИЕ 3 МИНУТ
+// 11. ТОЧКА ВХОДА
 // =================================================================
 
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
         WriteLog(@"=== CHEAT LOADED ===");
+        WriteLog(@"⏳ Waiting 5 seconds for game to load...");
+        [NSThread sleepForTimeInterval:5.0];
         
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        WriteLog(@"⏳ Searching for GameManager (3 minutes timeout)...");
-        WriteLog(@"⏳ Enter the match and wait...");
-        
-        __block int attempts = 0;
-        
-        [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
-            attempts++;
-            
-            uintptr_t gm = FindGameManagerInstance();
-            
-            if (gm && gameController) {
-                WriteLog([NSString stringWithFormat:@"✅ GameController found after %.1f seconds!", (float)attempts / 10.0f]);
-                [timer invalidate];
-                InitializeCheat();
-                return;
-            }
-            
-            if (attempts % 30 == 0) {
-                WriteLog([NSString stringWithFormat:@"⏳ Still waiting for GameManager... (%ds)", attempts / 10]);
-            }
-            
-            if (attempts >= 1800) {
-                [timer invalidate];
-                WriteLog(@"❌ GameManager not found after 3 minutes!");
-                WriteLog(@"❌ Cheat will not work!");
-            }
-        }];
-        
+        InitializeCheat();
         WriteLog(@"=== CHEAT SETUP COMPLETED ===");
     }
 }
