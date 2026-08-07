@@ -1,5 +1,5 @@
 // cheat.m — ПОЛНЫЙ АВТОМАТИЧЕСКИЙ ПОИСК
-// Сам найдёт камеру и всё остальное!
+// С ПРОТОТИПОМ GetGlobalPosition!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -8,6 +8,12 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/QuartzCore.h>
+
+// =================================================================
+// ПРОТОТИПЫ ФУНКЦИЙ (объявление до использования)
+// =================================================================
+
+Vector3 GetGlobalPosition(uintptr_t transformPtr);  // ← ЭТО ИСПРАВЛЯЕТ ОШИБКУ!
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -219,6 +225,27 @@ typedef struct {
     Vector3 rightFoot;
 } SkeletonBones;
 
+// =================================================================
+// 8. РАБОТА С UNITY TRANSFORM (ОПРЕДЕЛЕНИЕ ФУНКЦИИ)
+// =================================================================
+
+Vector3 GetGlobalPosition(uintptr_t transformPtr) {
+    Vector3 zero = {0, 0, 0};
+    if (!transformPtr) return zero;
+    
+    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
+    uintptr_t parent = ReadPtr(transformPtr + 0x08);
+    
+    if (parent) {
+        Vector3 parentPos = GetGlobalPosition(parent);
+        pos.x += parentPos.x;
+        pos.y += parentPos.y;
+        pos.z += parentPos.z;
+    }
+    
+    return pos;
+}
+
 SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
     SkeletonBones bones = {};
     
@@ -284,25 +311,8 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 }
 
 // =================================================================
-// 8. ОСТАЛЬНОЙ КОД ESP
+// 9. МИР -> ЭКРАН
 // =================================================================
-
-Vector3 GetGlobalPosition(uintptr_t transformPtr) {
-    Vector3 zero = {0, 0, 0};
-    if (!transformPtr) return zero;
-    
-    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
-    uintptr_t parent = ReadPtr(transformPtr + 0x08);
-    
-    if (parent) {
-        Vector3 parentPos = GetGlobalPosition(parent);
-        pos.x += parentPos.x;
-        pos.y += parentPos.y;
-        pos.z += parentPos.z;
-    }
-    
-    return pos;
-}
 
 float* viewMatrix = NULL;
 float* projectionMatrix = NULL;
@@ -345,7 +355,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 }
 
 // =================================================================
-// 9. ESP ОВЕРЛЕЙ
+// 10. ESP ОВЕРЛЕЙ
 // =================================================================
 
 @interface ESPOverlayView : UIView
@@ -461,7 +471,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 @end
 
 // =================================================================
-// 10. ИНИЦИАЛИЗАЦИЯ
+// 11. ИНИЦИАЛИЗАЦИЯ
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -531,7 +541,7 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 11. ТОЧКА ВХОДА
+// 12. ТОЧКА ВХОДА
 // =================================================================
 
 __attribute__((constructor)) static void init() {
