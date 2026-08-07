@@ -1,5 +1,5 @@
 // cheat.m — ПОЛНЫЙ АВТОМАТИЧЕСКИЙ ПОИСК
-// С ПРОТОТИПОМ GetGlobalPosition!
+// ПРАВИЛЬНЫЙ ПОРЯДОК: сначала структуры, потом прототипы!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -10,18 +10,12 @@
 #import <QuartzCore/QuartzCore.h>
 
 // =================================================================
-// ПРОТОТИПЫ ФУНКЦИЙ (объявление до использования)
-// =================================================================
-
-Vector3 GetGlobalPosition(uintptr_t transformPtr);  // ← ЭТО ИСПРАВЛЯЕТ ОШИБКУ!
-
-// =================================================================
-// 1. БАЗОВЫЕ СТРУКТУРЫ
+// 1. СНАЧАЛА СТРУКТУРЫ!
 // =================================================================
 
 typedef struct {
     float x, y, z;
-} Vector3;
+} Vector3;  // ← СНАЧАЛА ОПРЕДЕЛЯЕМ СТРУКТУРУ!
 
 typedef struct {
     float x, y;
@@ -32,7 +26,13 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+// 2. ПОТОМ ПРОТОТИПЫ ФУНКЦИЙ
+// =================================================================
+
+Vector3 GetGlobalPosition(uintptr_t transformPtr);  // ← ТЕПЕРЬ ВСЁ ПРАВИЛЬНО!
+
+// =================================================================
+// 3. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 // =================================================================
 
 uintptr_t baseAddress = 0;
@@ -73,7 +73,7 @@ BOOL cheatInitialized = NO;
 #define OFFSET_SPECTATOR_PLAYERS               0x58
 
 // =================================================================
-// 3. ФУНКЦИЯ ДЛЯ ЗАПИСИ ЛОГОВ
+// 4. ФУНКЦИЯ ДЛЯ ЗАПИСИ ЛОГОВ
 // =================================================================
 
 void WriteLog(NSString *message) {
@@ -96,7 +96,7 @@ void WriteLog(NSString *message) {
 }
 
 // =================================================================
-// 4. БЕЗОПАСНЫЕ ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ
+// 5. БЕЗОПАСНЫЕ ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ
 // =================================================================
 
 uintptr_t GetBaseAddress() {
@@ -139,7 +139,7 @@ Vector3 ReadVector3(uintptr_t address) {
 }
 
 // =================================================================
-// 5. ПОИСК SPECTATOR CONTROLLER
+// 6. ПОИСК SPECTATOR CONTROLLER
 // =================================================================
 
 uintptr_t FindSpectatorController() {
@@ -164,7 +164,7 @@ uintptr_t FindSpectatorController() {
 }
 
 // =================================================================
-// 6. ПОИСК КАМЕРЫ
+// 7. ПОИСК КАМЕРЫ
 // =================================================================
 
 uintptr_t FindCameraInMemory() {
@@ -199,7 +199,28 @@ uintptr_t FindCameraInMemory() {
 }
 
 // =================================================================
-// 7. ПОЛУЧЕНИЕ СКЕЛЕТА
+// 8. РАБОТА С UNITY TRANSFORM
+// =================================================================
+
+Vector3 GetGlobalPosition(uintptr_t transformPtr) {
+    Vector3 zero = {0, 0, 0};
+    if (!transformPtr) return zero;
+    
+    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
+    uintptr_t parent = ReadPtr(transformPtr + 0x08);
+    
+    if (parent) {
+        Vector3 parentPos = GetGlobalPosition(parent);
+        pos.x += parentPos.x;
+        pos.y += parentPos.y;
+        pos.z += parentPos.z;
+    }
+    
+    return pos;
+}
+
+// =================================================================
+// 9. ПОЛУЧЕНИЕ СКЕЛЕТА
 // =================================================================
 
 typedef struct {
@@ -224,27 +245,6 @@ typedef struct {
     Vector3 rightLeg;
     Vector3 rightFoot;
 } SkeletonBones;
-
-// =================================================================
-// 8. РАБОТА С UNITY TRANSFORM (ОПРЕДЕЛЕНИЕ ФУНКЦИИ)
-// =================================================================
-
-Vector3 GetGlobalPosition(uintptr_t transformPtr) {
-    Vector3 zero = {0, 0, 0};
-    if (!transformPtr) return zero;
-    
-    Vector3 pos = ReadVector3(transformPtr + OFFSET_TRANSFORM_POSITION);
-    uintptr_t parent = ReadPtr(transformPtr + 0x08);
-    
-    if (parent) {
-        Vector3 parentPos = GetGlobalPosition(parent);
-        pos.x += parentPos.x;
-        pos.y += parentPos.y;
-        pos.z += parentPos.z;
-    }
-    
-    return pos;
-}
 
 SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
     SkeletonBones bones = {};
@@ -311,7 +311,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 }
 
 // =================================================================
-// 9. МИР -> ЭКРАН
+// 10. МИР -> ЭКРАН
 // =================================================================
 
 float* viewMatrix = NULL;
@@ -355,7 +355,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 }
 
 // =================================================================
-// 10. ESP ОВЕРЛЕЙ
+// 11. ESP ОВЕРЛЕЙ
 // =================================================================
 
 @interface ESPOverlayView : UIView
@@ -471,7 +471,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 @end
 
 // =================================================================
-// 11. ИНИЦИАЛИЗАЦИЯ
+// 12. ИНИЦИАЛИЗАЦИЯ
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -541,7 +541,7 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 12. ТОЧКА ВХОДА
+// 13. ТОЧКА ВХОДА
 // =================================================================
 
 __attribute__((constructor)) static void init() {
