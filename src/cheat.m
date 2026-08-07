@@ -1,5 +1,5 @@
 // cheat.m — ESP + Skeleton + Silent Aim 360 (Standoff 2)
-// ПОИСК GAMECONTROLLER В ТЕЧЕНИЕ 3 МИНУТ!
+// ПОИСК ЧЕРЕЗ GAMEMANAGER (3 МИНУТЫ)
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -14,7 +14,7 @@
 // =================================================================
 
 void InitializeCheat(void);
-uintptr_t FindGameControllerByOffset(void);
+uintptr_t FindGameManagerInstance(void);
 
 // =================================================================
 // 1. БАЗОВЫЕ СТРУКТУРЫ
@@ -474,41 +474,45 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 @end
 
 // =================================================================
-// 12. ПОИСК GAMECONTROLLER ПО ОФФСЕТАМ
+// 12. ПОИСК GAMEMANAGER._INSTANCE
 // =================================================================
 
-uintptr_t FindGameControllerByOffset() {
-    // Пробуем стандартные оффсеты для синглтона
+uintptr_t FindGameManagerInstance() {
+    WriteLog(@"🔍 Looking for GameManager._instance...");
+    
     uintptr_t offsets[] = {
         0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50,
-        0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0,
-        0xA8, 0xB0, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0
+        0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0
     };
     
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 20; i++) {
         uintptr_t offset = offsets[i];
         uintptr_t addr = baseAddress + offset;
         
         if (!IsAddressReadable(addr)) continue;
         
-        uintptr_t gc = ReadPtr(addr);
-        if (!gc || gc < 0x100000000 || gc > 0x200000000) continue;
+        uintptr_t gm = ReadPtr(addr);
+        if (!gm || gm < 0x100000000 || gm > 0x200000000) continue;
         
-        // Проверяем камеру
+        uintptr_t gc = ReadPtr(gm + 0x58);
+        if (!gc || gc < 0x100000000) continue;
+        
         uintptr_t camera = ReadPtr(gc + OFFSET_GAMECONTROLLER_MAINCAMERA);
         if (!camera || camera < 0x100000000) continue;
         
-        // Проверяем игрока
         uintptr_t player = ReadPtr(gc + OFFSET_GAMECONTROLLER_PLAYERCONTROLLER);
         if (player && player > 0x100000000 && player < 0x200000000) {
-            WriteLog([NSString stringWithFormat:@"✅ Found GameController at offset 0x%lx!", offset]);
+            WriteLog([NSString stringWithFormat:@"✅ Found GameManager at offset 0x%lx!", offset]);
+            WriteLog([NSString stringWithFormat:@"   GameManager: 0x%lx", gm]);
             WriteLog([NSString stringWithFormat:@"   GameController: 0x%lx", gc]);
             WriteLog([NSString stringWithFormat:@"   Camera: 0x%lx", camera]);
             WriteLog([NSString stringWithFormat:@"   LocalPlayer: 0x%lx", player]);
-            return gc;
+            gameController = gc;
+            return gm;
         }
     }
     
+    WriteLog(@"❌ GameManager._instance not found!");
     return 0;
 }
 
@@ -647,7 +651,7 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 14. ТОЧКА ВХОДА — ПОИСК В ТЕЧЕНИЕ 3 МИНУТ
+// 14. ТОЧКА ВХОДА — ПОИСК GAMEMANAGER В ТЕЧЕНИЕ 3 МИНУТ
 // =================================================================
 
 __attribute__((constructor)) static void init() {
@@ -657,37 +661,30 @@ __attribute__((constructor)) static void init() {
         baseAddress = GetBaseAddress();
         WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
         
-        WriteLog(@"⏳ Searching for GameController (3 minutes timeout)...");
+        WriteLog(@"⏳ Searching for GameManager (3 minutes timeout)...");
         WriteLog(@"⏳ Enter the match and wait...");
         
         __block int attempts = 0;
-        __block BOOL found = NO;
         
-        // Запускаем таймер для поиска GameController
         [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
             attempts++;
             
-            uintptr_t gc = FindGameControllerByOffset();
+            uintptr_t gm = FindGameManagerInstance();
             
-            if (gc) {
+            if (gm && gameController) {
                 WriteLog([NSString stringWithFormat:@"✅ GameController found after %.1f seconds!", (float)attempts / 10.0f]);
                 [timer invalidate];
-                found = YES;
-                
-                gameController = gc;
                 InitializeCheat();
                 return;
             }
             
-            // Каждые 30 попыток (3 секунды) пишем в лог
             if (attempts % 30 == 0) {
-                WriteLog([NSString stringWithFormat:@"⏳ Still waiting for GameController... (%ds)", attempts / 10]);
+                WriteLog([NSString stringWithFormat:@"⏳ Still waiting for GameManager... (%ds)", attempts / 10]);
             }
             
-            // Через 3 минуты (1800 попыток) останавливаем поиск
             if (attempts >= 1800) {
                 [timer invalidate];
-                WriteLog(@"❌ GameController not found after 3 minutes!");
+                WriteLog(@"❌ GameManager not found after 3 minutes!");
                 WriteLog(@"❌ Cheat will not work!");
             }
         }];
