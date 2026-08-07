@@ -1,5 +1,4 @@
-// cheat.m — ПОЛНЫЙ АВТОМАТИЧЕСКИЙ ПОИСК
-// ПРАВИЛЬНЫЙ ПОРЯДОК: сначала структуры, потом прототипы!
+// cheat.m — БЕЗ СКАНИРОВАНИЯ! Используем точные оффсеты из дампа!
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
@@ -10,12 +9,12 @@
 #import <QuartzCore/QuartzCore.h>
 
 // =================================================================
-// 1. СНАЧАЛА СТРУКТУРЫ!
+// 1. СТРУКТУРЫ
 // =================================================================
 
 typedef struct {
     float x, y, z;
-} Vector3;  // ← СНАЧАЛА ОПРЕДЕЛЯЕМ СТРУКТУРУ!
+} Vector3;
 
 typedef struct {
     float x, y;
@@ -26,21 +25,36 @@ typedef struct {
 } Vector4;
 
 // =================================================================
-// 2. ПОТОМ ПРОТОТИПЫ ФУНКЦИЙ
-// =================================================================
-
-Vector3 GetGlobalPosition(uintptr_t transformPtr);  // ← ТЕПЕРЬ ВСЁ ПРАВИЛЬНО!
-
-// =================================================================
-// 3. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+// 2. ТОЧНЫЕ ОФФСЕТЫ ИЗ ДАМПА!
 // =================================================================
 
 uintptr_t baseAddress = 0;
+uintptr_t gameController = 0;
 uintptr_t mainCamera = 0;
 uintptr_t spectatorController = 0;
 BOOL cheatInitialized = NO;
 
-#define OFFSET_TRANSFORM_POSITION              0x10
+// ====== GAME CONTROLLER (из дампа) ======
+#define OFFSET_GAMECONTROLLER_INSTANCE         0x18   // синглтон
+#define OFFSET_GAMECONTROLLER_MAINCAMERA       0xA0
+#define OFFSET_GAMECONTROLLER_SPECTATOR        0xB8
+
+// ====== CAMERA (из дампа) ======
+#define OFFSET_CAMERA_WORLDTOCAMERA            0xE0
+#define OFFSET_CAMERA_PROJECTION               0x120
+
+// ====== SPECTATOR CONTROLLER ======
+#define OFFSET_SPECTATOR_PLAYERS               0x58
+
+// ====== PLAYER CONTROLLER ======
+#define OFFSET_PLAYERCONTROLLER_TEAM           0x49
+#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
+#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
+#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
+#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
+#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
+
+// ====== BIPEDMAP ======
 #define OFFSET_BIPED_HEAD                      0x18
 #define OFFSET_BIPED_NECK                      0x20
 #define OFFSET_BIPED_SPINE                     0x28
@@ -62,18 +76,15 @@ BOOL cheatInitialized = NO;
 #define OFFSET_BIPED_RIGHT_LEG                 0xB0
 #define OFFSET_BIPED_RIGHT_FOOT                0xB8
 
-#define OFFSET_PLAYERCONTROLLER_TEAM           0x49
-#define OFFSET_PLAYERCONTROLLER_TRANSFORM      0x68
-#define OFFSET_PLAYERCONTROLLER_BIPEDMAP       0xD0
-#define OFFSET_PLAYERCONTROLLER_PLAYERID       0x100
-#define OFFSET_PLAYERCONTROLLER_ISPREINITIALIZED 0xF0
-#define OFFSET_PLAYERCONTROLLER_PLAYER         0x108
+// ====== TRANSFORM ======
+#define OFFSET_TRANSFORM_POSITION              0x10
+
+// ====== PHOTON PLAYER ======
 #define OFFSET_PHOTONPLAYER_ACTORID            0x10
 #define OFFSET_PHOTONPLAYER_ISLOCAL            0x28
-#define OFFSET_SPECTATOR_PLAYERS               0x58
 
 // =================================================================
-// 4. ФУНКЦИЯ ДЛЯ ЗАПИСИ ЛОГОВ
+// 3. ФУНКЦИЯ ДЛЯ ЗАПИСИ ЛОГОВ
 // =================================================================
 
 void WriteLog(NSString *message) {
@@ -96,7 +107,7 @@ void WriteLog(NSString *message) {
 }
 
 // =================================================================
-// 5. БЕЗОПАСНЫЕ ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ
+// 4. БЕЗОПАСНЫЕ ФУНКЦИИ РАБОТЫ С ПАМЯТЬЮ
 // =================================================================
 
 uintptr_t GetBaseAddress() {
@@ -139,67 +150,7 @@ Vector3 ReadVector3(uintptr_t address) {
 }
 
 // =================================================================
-// 6. ПОИСК SPECTATOR CONTROLLER
-// =================================================================
-
-uintptr_t FindSpectatorController() {
-    WriteLog(@"🔍 Searching for SpectatorController...");
-    
-    for (uintptr_t addr = 0x100000000; addr < 0x180000000; addr += 0x4) {
-        if (!IsAddressReadable(addr)) continue;
-        
-        uintptr_t playerList = ReadPtr(addr + OFFSET_SPECTATOR_PLAYERS);
-        if (playerList && playerList > 0x100000000 && playerList < 0x200000000) {
-            uintptr_t firstPlayer = ReadPtr(playerList);
-            if (firstPlayer && firstPlayer > 0x100000000) {
-                WriteLog([NSString stringWithFormat:@"✅ Found SpectatorController at 0x%lx!", addr]);
-                WriteLog([NSString stringWithFormat:@"   PlayerList at: 0x%lx", playerList]);
-                return addr;
-            }
-        }
-    }
-    
-    WriteLog(@"❌ SpectatorController not found!");
-    return 0;
-}
-
-// =================================================================
-// 7. ПОИСК КАМЕРЫ
-// =================================================================
-
-uintptr_t FindCameraInMemory() {
-    WriteLog(@"🔍 Searching for Camera in memory...");
-    
-    for (uintptr_t addr = 0x100000000; addr < 0x180000000; addr += 0x4) {
-        if (!IsAddressReadable(addr)) continue;
-        
-        for (int offset = 0x80; offset < 0x300; offset += 0x4) {
-            float nearVal = ReadFloat(addr + offset);
-            float farVal = ReadFloat(addr + offset + 4);
-            
-            if (nearVal > 0.001f && nearVal < 10.0f &&
-                farVal > 10.0f && farVal < 10000.0f) {
-                
-                float* testView = (float*)(addr + offset + 0x20);
-                float* testProj = (float*)(addr + offset + 0x60);
-                
-                if (testProj && fabs(testProj[10]) > 0.1f) {
-                    WriteLog([NSString stringWithFormat:@"✅ Found Camera at 0x%lx!", addr]);
-                    WriteLog([NSString stringWithFormat:@"   near: %f, far: %f", nearVal, farVal]);
-                    WriteLog([NSString stringWithFormat:@"   viewMatrix offset: 0x%x", offset + 0x20]);
-                    WriteLog([NSString stringWithFormat:@"   projectionMatrix offset: 0x%x", offset + 0x60]);
-                    return addr;
-                }
-            }
-        }
-    }
-    
-    WriteLog(@"❌ Camera not found!");
-    return 0;
-}
-
-// =================================================================
-// 8. РАБОТА С UNITY TRANSFORM
+// 5. РАБОТА С UNITY TRANSFORM
 // =================================================================
 
 Vector3 GetGlobalPosition(uintptr_t transformPtr) {
@@ -220,7 +171,7 @@ Vector3 GetGlobalPosition(uintptr_t transformPtr) {
 }
 
 // =================================================================
-// 9. ПОЛУЧЕНИЕ СКЕЛЕТА
+// 6. ПОЛУЧЕНИЕ СКЕЛЕТА
 // =================================================================
 
 typedef struct {
@@ -311,7 +262,7 @@ SkeletonBones GetPlayerBones(uintptr_t playerControllerPtr) {
 }
 
 // =================================================================
-// 10. МИР -> ЭКРАН
+// 7. МИР -> ЭКРАН
 // =================================================================
 
 float* viewMatrix = NULL;
@@ -319,8 +270,8 @@ float* projectionMatrix = NULL;
 
 void UpdateMatrices() {
     if (!mainCamera) return;
-    viewMatrix = (float*)(mainCamera + 0xE0);
-    projectionMatrix = (float*)(mainCamera + 0x120);
+    viewMatrix = (float*)(mainCamera + OFFSET_CAMERA_WORLDTOCAMERA);
+    projectionMatrix = (float*)(mainCamera + OFFSET_CAMERA_PROJECTION);
 }
 
 bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
@@ -355,7 +306,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 }
 
 // =================================================================
-// 11. ESP ОВЕРЛЕЙ
+// 8. ESP ОВЕРЛЕЙ
 // =================================================================
 
 @interface ESPOverlayView : UIView
@@ -471,7 +422,7 @@ bool WorldToScreen(Vector3 worldPos, Vector2* screenPos) {
 @end
 
 // =================================================================
-// 12. ИНИЦИАЛИЗАЦИЯ
+// 9. ИНИЦИАЛИЗАЦИЯ ЧИТА (БЕЗ СКАНИРОВАНИЯ!)
 // =================================================================
 
 ESPOverlayView *espView = nil;
@@ -480,32 +431,49 @@ void InitializeCheat() {
     if (cheatInitialized) return;
     cheatInitialized = YES;
     
-    WriteLog(@"=== CHEAT INIT STARTED ===");
+    WriteLog(@"=== CHEAT INIT STARTED (NO SCAN) ===");
     
     baseAddress = GetBaseAddress();
     WriteLog([NSString stringWithFormat:@"Base Address: 0x%lx", baseAddress]);
     
-    // 1. Ищем камеру
-    mainCamera = FindCameraInMemory();
+    // 1. Находим GameController по оффсету 0x18
+    gameController = ReadPtr(baseAddress + OFFSET_GAMECONTROLLER_INSTANCE);
+    if (!gameController) {
+        WriteLog(@"❌ GameController not found!");
+        return;
+    }
+    WriteLog([NSString stringWithFormat:@"✅ GameController: 0x%lx", gameController]);
+    
+    // 2. Находим камеру через GameController (оффсет 0xA0)
+    mainCamera = ReadPtr(gameController + OFFSET_GAMECONTROLLER_MAINCAMERA);
     if (!mainCamera) {
         WriteLog(@"❌ Camera not found!");
         return;
     }
     WriteLog([NSString stringWithFormat:@"✅ Camera: 0x%lx", mainCamera]);
     
-    // 2. Ищем SpectatorController
-    spectatorController = FindSpectatorController();
+    // 3. Проверяем матрицы
+    viewMatrix = (float*)(mainCamera + OFFSET_CAMERA_WORLDTOCAMERA);
+    projectionMatrix = (float*)(mainCamera + OFFSET_CAMERA_PROJECTION);
+    WriteLog([NSString stringWithFormat:@"✅ viewMatrix: 0x%lx", (uintptr_t)viewMatrix]);
+    WriteLog([NSString stringWithFormat:@"✅ projectionMatrix: 0x%lx", (uintptr_t)projectionMatrix]);
+    
+    // 4. Находим SpectatorController (оффсет 0xB8 от GameController)
+    spectatorController = ReadPtr(gameController + OFFSET_GAMECONTROLLER_SPECTATOR);
     if (!spectatorController) {
         WriteLog(@"❌ SpectatorController not found!");
         return;
     }
     WriteLog([NSString stringWithFormat:@"✅ SpectatorController: 0x%lx", spectatorController]);
     
-    // 3. Обновляем матрицы
-    UpdateMatrices();
-    WriteLog(@"✅ Matrices updated!");
+    // 5. Получаем список игроков
+    uintptr_t playerList = ReadPtr(spectatorController + OFFSET_SPECTATOR_PLAYERS);
+    if (playerList) {
+        int count = (int)ReadUInt32(playerList - 0x8);
+        WriteLog([NSString stringWithFormat:@"✅ Player count: %d", count]);
+    }
     
-    // 4. Создаём ESP
+    // 6. Создаём ESP
     dispatch_async(dispatch_get_main_queue(), ^{
         WriteLog(@"Creating ESP overlay...");
         UIWindow *window = [UIApplication sharedApplication].keyWindow;
@@ -518,20 +486,51 @@ void InitializeCheat() {
             return;
         }
         
-        espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
-        espView.backgroundColor = [UIColor clearColor];
-        espView.userInteractionEnabled = NO;
-        espView.opaque = NO;
-        espView.localTeam = 0;
-        espView.localPos = (Vector3){0, 0, 0};
-        [window addSubview:espView];
-        [window bringSubviewToFront:espView];
-        WriteLog(@"✅ ESP Overlay created!");
+        // Получаем локального игрока
+        uintptr_t localPlayer = ReadPtr(gameController + 0x280);
+        if (localPlayer) {
+            int localTeam = (int)ReadUInt8(localPlayer + OFFSET_PLAYERCONTROLLER_TEAM);
+            WriteLog([NSString stringWithFormat:@"Local Team: %d", localTeam]);
+            
+            espView = [[ESPOverlayView alloc] initWithFrame:window.bounds];
+            espView.backgroundColor = [UIColor clearColor];
+            espView.userInteractionEnabled = NO;
+            espView.opaque = NO;
+            espView.localTeam = localTeam;
+            espView.localPos = GetGlobalPosition(ReadPtr(localPlayer + OFFSET_PLAYERCONTROLLER_TRANSFORM));
+            [window addSubview:espView];
+            [window bringSubviewToFront:espView];
+            WriteLog(@"✅ ESP Overlay created!");
+        }
         
         [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) {
             @autoreleasepool {
                 UpdateMatrices();
-                espView.players = @[];
+                
+                NSMutableArray *playersArray = [NSMutableArray array];
+                uintptr_t playerList = ReadPtr(spectatorController + OFFSET_SPECTATOR_PLAYERS);
+                
+                if (playerList) {
+                    int playerCount = (int)ReadUInt32(playerList - 0x8);
+                    
+                    for (int i = 0; i < playerCount; i++) {
+                        uintptr_t photonPlayer = ReadPtr(playerList + i * sizeof(uintptr_t));
+                        if (!photonPlayer) continue;
+                        
+                        // Проверяем, локальный ли игрок
+                        uint8_t isLocal = ReadUInt8(photonPlayer + OFFSET_PHOTONPLAYER_ISLOCAL);
+                        if (isLocal) continue;
+                        
+                        // Получаем actorId
+                        int actorId = (int)ReadUInt32(photonPlayer + OFFSET_PHOTONPLAYER_ACTORID);
+                        if (actorId == 0) continue;
+                        
+                        // TODO: Получить PlayerController из PhotonPlayer
+                        // Пока пропускаем
+                    }
+                }
+                
+                espView.players = playersArray;
                 [espView setNeedsDisplay];
             }
         }];
@@ -541,7 +540,7 @@ void InitializeCheat() {
 }
 
 // =================================================================
-// 13. ТОЧКА ВХОДА
+// 10. ТОЧКА ВХОДА
 // =================================================================
 
 __attribute__((constructor)) static void init() {
